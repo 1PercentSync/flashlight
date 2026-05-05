@@ -128,6 +128,13 @@ A request must **fully match** a cached prefix unit to hit cache. Partial matche
 
 Example: if request 1 is `A + B` and request 2 is `A + C`, request 2 does NOT hit cache (can't fully match `A + B`). But after both complete, the system detects common prefix `A` and caches it. Request 3 with `A + D` will then hit on `A`.
 
+### Verified Behavior (2026-05-05)
+
+1. **Minimum threshold**: requests with total prompt < ~128 tokens never produce cache
+2. **128-token alignment**: `prompt_cache_hit_tokens` is always a multiple of 128 (DS stores cache in 128-token blocks)
+3. **No collision**: different text prefixes never cross-hit each other
+4. **Activation required**: common prefix detection needs at least 2 requests with the same prefix before it creates a cache unit. First probe always returns 0; second probe can hit.
+
 ### Usage Fields
 
 ```json
