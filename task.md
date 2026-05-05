@@ -9,9 +9,9 @@
 
 ## Phase 1: 开发前验证
 
-- [ ] DS API 基础连通测试（JSON Output + 流式传输 + 思考模式）
-- [ ] 连续多轮 user 输入测试（无 assistant 间隔是否可行，不行则确认插入 "OK" 方案）
-- [ ] 缓存探测可行性测试（建立缓存后探测 `prompt_cache_hit_tokens` 是否符合预期）
+- [X] DS API 基础连通测试（JSON Output + 流式传输 + 思考模式）
+- [X] 连续多轮 user 输入测试（无 assistant 间隔是否可行 → 可行）
+- [X] 缓存机制研究（逆向确认：⌊total/128⌋×128 单元创建规则，方向性，无碰撞）
 
 ## Phase 2: 基础模块
 
