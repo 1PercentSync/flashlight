@@ -2,10 +2,10 @@
 
 ## Phase 0: 项目初始化
 
-- [ ] 初始化 package.json（name, type:module, scripts, engines）
-- [ ] 配置 tsconfig.json
-- [ ] 安装核心依赖（`@modelcontextprotocol/sdk`, `openai`, `ignore`, `proper-lockfile`）
-- [ ] 安装开发依赖（typescript, @types/node 等）
+- [X] 初始化 package.json（name, type:module, scripts, engines）
+- [X] 配置 tsconfig.json
+- [X] 安装核心依赖（`@modelcontextprotocol/server`, `openai`, `ignore`, `proper-lockfile`, `zod`）
+- [X] 安装开发依赖（typescript, @types/node）
 
 ## Phase 1: 开发前验证
 

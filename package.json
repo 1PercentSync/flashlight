@@ -1,0 +1,26 @@
+{
+  "name": "flashlight",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/1PercentSync/flashlight.git"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "@cfworker/json-schema": "^4.1.1",
+    "@modelcontextprotocol/server": "^2.0.0-alpha.2",
+    "ignore": "^7.0.5",
+    "openai": "^6.36.0",
+    "proper-lockfile": "^4.1.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "typescript": "^6.0.3"
+  }
+}
