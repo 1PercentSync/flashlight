@@ -31,6 +31,11 @@
 - [ ] 实现 `.flashlight/` 目录的加锁/解锁（基于 `proper-lockfile`）
 - [ ] 确保锁只覆盖文件读写，不覆盖 API 调用
 
+### logger.ts — 日志（含缓存预测）
+
+- [ ] 实现 stderr 日志输出（info / warn 级别）
+- [ ] 实现缓存预测对比：记录 predicted_hit vs actual_hit，不一致时 warn
+
 ## Phase 3: 文件扫描与 Base 管理
 
 ### scanner.ts — 文件扫描

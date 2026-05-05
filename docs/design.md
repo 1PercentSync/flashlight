@@ -259,6 +259,17 @@ JSON 列表，每项包含：
 
 目前所有错误（API 超时、上下文超 1M、JSON 格式异常、行号越界）均显式报错，不做重试和降级。
 
+### 9.5 缓存日志
+
+每次 DS API 请求后，基于已知缓存机制预测缓存命中情况，与实际返回对比：
+
+- 记录：请求类型（探测/查询/激活）、total_prompt_tokens、predicted_hit、actual_hit
+- 预测逻辑：根据已记录的历史缓存单元（⌊total/128⌋×128），判断当前请求是否应该命中
+- 预测与实际一致：正常 log
+- 预测与实际不一致：warn 级别日志，表明缓存机制可能已变更
+
+日志输出到 stderr（MCP Server 的 stdout 被 transport 占用）。
+
 ---
 
 ## 10. 数据存储
@@ -316,7 +327,8 @@ flashlight/
 │   ├── extractor.ts         # 结果提取，三档返回策略
 │   ├── tokenizer.ts         # DS 官方 tokenizer 的纯 TS 移植
 │   ├── lock.ts              # .flashlight/ 文件锁
-│   └── config.ts            # 配置项定义与加载
+│   ├── config.ts            # 配置项定义与加载
+│   └── logger.ts            # 日志输出（含缓存预测对比）
 ```
 
 ---
