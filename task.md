@@ -17,24 +17,24 @@
 
 ### config.ts — 配置项定义与加载
 
-- [ ] 定义配置类型（deepseek_api_key, ext_whitelist, model, reasoning_effort, change_threshold）
-- [ ] 实现配置加载逻辑（从 MCP Server 初始化参数读取）
+- [X] 定义配置类型（deepseek_api_key, ext_whitelist, model, reasoning_effort, change_threshold）
+- [X] 实现配置加载逻辑（从 MCP Server 初始化参数读取）
 
-### tokenizer.ts — DeepSeek Tokenizer 纯 TS 移植
+### tokenizer.ts — DeepSeek Tokenizer
 
-- [ ] 分析 Python tokenizer 实现，确定移植范围
-- [ ] 实现 TS 版本的 tokenize / count 功能
-- [ ] 验证与 Python 版本输出一致
+- [X] 使用 `@huggingface/tokenizers` 加载 tokenizer.json
+- [X] 实现 countTokens 功能
+- [X] 验证与 DS API 实际计数一致
 
 ### lock.ts — 文件锁
 
-- [ ] 实现 `.flashlight/` 目录的加锁/解锁（基于 `proper-lockfile`）
-- [ ] 确保锁只覆盖文件读写，不覆盖 API 调用
+- [X] 实现 `.flashlight/` 目录的加锁/解锁（基于 `proper-lockfile`）
+- [X] 确保锁只覆盖文件读写，不覆盖 API 调用
 
 ### logger.ts — 日志（含缓存预测）
 
-- [ ] 实现 stderr 日志输出（info / warn 级别）
-- [ ] 实现缓存预测对比：记录 predicted_hit vs actual_hit，不一致时 warn
+- [X] 实现 stderr 日志输出（info / warn / error 级别）
+- [X] 实现缓存预测对比：记录 predicted_hit vs actual_hit，不一致时 warn
 
 ## Phase 3: 文件扫描与 Base 管理
 
