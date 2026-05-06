@@ -1,0 +1,11 @@
+services:
+  keeper:
+    image: ghcr.io/1percentsync/flashlight-keeper:latest
+    ports:
+      - "3100:3100"
+    environment:
+      - DEFAULT_INTERVAL_MS=21600000
+      - DEGRADED_INTERVAL_MS=10800000
+      - MAX_LIFETIME_MS=172800000
+      - ENABLE_REFRESH=false
+    restart: unless-stopped
