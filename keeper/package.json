@@ -1,0 +1,17 @@
+{
+  "name": "@1percentsync/flashlight-keeper",
+  "version": "0.4.0",
+  "description": "Cache keepalive service for flashlight MCP server",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "openai": "^6.36.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "typescript": "^6.0.3"
+  }
+}

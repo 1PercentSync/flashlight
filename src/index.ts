@@ -196,10 +196,9 @@ async function handleSingleQuery(
   }
 
   info("sending changes activation (fire-and-forget)");
-  fireActivation(
-    messages.map((m) => ({ ...m })).slice(0, -1).concat({ role: "user", content: "OK" }),
-    "changes",
-  );
+  const activationMsgs = messages.map((m) => ({ ...m })).slice(0, -1).concat({ role: "user", content: "OK" });
+  fireActivation(activationMsgs, "changes");
+  notifyKeeper("__all__", activationMsgs);
 
   const output = extractResults(snapshot, response.results);
   info(`--- query end: returned ${output.length} chars ---`);
@@ -323,11 +322,12 @@ async function handleShardedQuery(
   const mergedResults = mergeShardResults(responses.map((r) => r.response.results));
   info(`merged: ${mergedResults.length} total results`);
 
-  // Fire activations per-shard (fire-and-forget)
+  // Fire activations per-shard (fire-and-forget) + notify keeper
   for (let i = 0; i < shardStates.length; i++) {
     const state = shardStates[i];
     const msgs = querySets[i].messages.slice(0, -1).concat({ role: "user", content: "OK" });
     fireActivation(msgs, `shard-${state.entry.id}`);
+    notifyKeeper(state.entry.id, msgs);
   }
 
   // Persist shard state
@@ -398,6 +398,32 @@ function mergeShardResults(resultSets: SearchResult[][]): SearchResult[] {
   return merged;
 }
 
+// --- Keeper integration ---
+
+function notifyKeeper(shardId: string, messages: { role: string; content: string }[]): void {
+  if (!config.keeper_url) return;
+
+  const body = JSON.stringify({
+    workspaceId: workspaceRoot,
+    shardId,
+    apiKey: config.deepseek_api_key,
+    model: config.model,
+    messages,
+  });
+  const headers = { "Content-Type": "application/json" };
+
+  fetch(`${config.keeper_url}/register`, { method: "POST", headers, body }).catch(() => {});
+
+  fetch(`${config.keeper_url}/refresh`, { method: "POST", headers, body })
+    .then((r) => r.ok ? r.json() as Promise<{ logs?: string[] }> : null)
+    .then((data) => {
+      if (data?.logs) {
+        for (const line of data.logs) info(`[keeper] ${line}`);
+      }
+    })
+    .catch(() => {});
+}
+
 // --- Initialization ---
 
 let initialized = false;
@@ -428,6 +454,7 @@ async function ensureInitialized() {
     max_context_tokens: process.env.FLASHLIGHT_MAX_CONTEXT_TOKENS
       ? parseInt(process.env.FLASHLIGHT_MAX_CONTEXT_TOKENS, 10)
       : undefined,
+    keeper_url: process.env.FLASHLIGHT_KEEPER_URL,
   });
 
   initLogger(workspaceRoot);
