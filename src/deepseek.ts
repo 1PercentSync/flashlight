@@ -154,34 +154,39 @@ export async function sendQuery(
   };
 }
 
-export function fireActivation(
+export async function sendActivation(
   messages: { role: "user"; content: string }[],
   label: string,
-): void {
-  client.chat.completions
-    .create({
+): Promise<void> {
+  try {
+    const resp = await client.chat.completions.create({
       model: config.model,
       messages,
       // @ts-expect-error DeepSeek-specific
       thinking: { type: "disabled" },
-    })
-    .then((resp) => {
-      const usage = resp.usage!;
-      // @ts-expect-error DeepSeek-specific
-      const hitTokens: number = usage.prompt_cache_hit_tokens ?? 0;
-      const predicted = predictCacheHit(usage.prompt_tokens);
-      logCacheResult({
-        type: "activation",
-        totalTokens: usage.prompt_tokens,
-        predictedHit: predicted,
-        actualHit: hitTokens,
-      });
-      recordCacheUnit(usage.prompt_tokens);
-      info(`${label} activation completed`);
-    })
-    .catch((err) => {
-      error(`${label} activation failed: ${err instanceof Error ? err.message : String(err)}`);
     });
+    const usage = resp.usage!;
+    // @ts-expect-error DeepSeek-specific
+    const hitTokens: number = usage.prompt_cache_hit_tokens ?? 0;
+    const predicted = predictCacheHit(usage.prompt_tokens);
+    logCacheResult({
+      type: "activation",
+      totalTokens: usage.prompt_tokens,
+      predictedHit: predicted,
+      actualHit: hitTokens,
+    });
+    recordCacheUnit(usage.prompt_tokens);
+    info(`${label} activation completed`);
+  } catch (err) {
+    error(`${label} activation failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+export function fireActivation(
+  messages: { role: "user"; content: string }[],
+  label: string,
+): void {
+  sendActivation(messages, label);
 }
 
 export function clearCacheUnits(): void {
