@@ -1,29 +1,25 @@
 import { getAll, getExpired, remove, type KeepaliveTask } from "./store.js";
 import { probe, activate } from "./probe.js";
-import { probeAllSentinels } from "./sentinel.js";
+import { checkSentinels } from "./sentinel.js";
 import { getActivationIntervalMs } from "./ttl.js";
 import { log, warn } from "./log.js";
 
-const SENTINEL_PROBE_INTERVAL_MS = 30 * 60_000; // 30 min
-const TASK_CHECK_INTERVAL_MS = 60_000; // 1 min
+const TICK_INTERVAL_MS = 60_000; // 1 min
 
 let unexpectedDeaths = 0;
 
 export function startScheduler(): void {
-  setInterval(sentinelTick, SENTINEL_PROBE_INTERVAL_MS);
-  setInterval(taskTick, TASK_CHECK_INTERVAL_MS);
+  setInterval(tick, TICK_INTERVAL_MS);
   log("scheduler started");
 }
 
-async function sentinelTick(): Promise<void> {
+async function tick(): Promise<void> {
   try {
-    await probeAllSentinels();
+    await checkSentinels();
   } catch (err) {
-    warn(`sentinel tick error: ${err instanceof Error ? err.message : String(err)}`);
+    warn(`sentinel check error: ${err instanceof Error ? err.message : String(err)}`);
   }
-}
 
-async function taskTick(): Promise<void> {
   for (const task of getExpired()) {
     log(`task expired (48h): workspace=${task.workspaceId} shard=${task.shardId}`);
     remove(task.id);
