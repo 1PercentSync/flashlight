@@ -56,19 +56,20 @@
 
 ### context.ts — 上下文拼接
 
-- [ ] 实现第一轮构造（cache_test_key + 系统指令）
-- [ ] 实现 Base 上下文构造（全量文件，按排序规则，附行号标注）
-- [ ] 实现变更上下文构造（变更文件完整内容 / 删除标注）
-- [ ] 实现目录树构造（含文件版本位置标注）
-- [ ] 实现查询轮构造（目录树 + scope/file_types + query）
+- [X] 实现第一轮构造（cache_test_key + 系统指令）
+- [X] 实现 Base 上下文构造（全量文件，按排序规则，附行号标注）
+- [X] 实现变更上下文构造（变更文件完整内容 / 删除标注）
+- [X] 实现目录树构造（含文件版本位置标注）
+- [X] 实现查询轮构造（目录树 + scope/file_types + query）
 
 ### deepseek.ts — DS API 客户端
 
-- [ ] 实现 OpenAI 客户端初始化（base_url, api_key）
-- [ ] 实现缓存探测请求（发送 first_turn + 探测轮，解析 usage）
-- [ ] 实现查询请求（流式传输，丢弃 reasoning_content，收集 content）
-- [ ] 实现 JSON 响应解析（提取 file/start_line/end_line 列表）
-- [ ] 实现 usage 信息提取（用于存储 base_token_count）
+- [X] 实现 OpenAI 客户端初始化（beta endpoint, api_key）
+- [X] 实现缓存探测请求（发送 first_turn + 探测轮，解析 usage）
+- [X] 实现查询请求（流式 + strict tool call schema，收集 tool_calls arguments）
+- [X] 实现 JSON 响应解析（从 tool call 提取 file/start_line/end_line）
+- [X] 实现 usage 信息提取 + 缓存预测日志
+- [X] 实现 fire-and-forget 激活请求
 
 ## Phase 5: 结果提取与返回
 
