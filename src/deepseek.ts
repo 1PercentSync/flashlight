@@ -54,7 +54,7 @@ const SEARCH_TOOL: OpenAI.ChatCompletionTool = {
 
 let client: OpenAI;
 let config: FlashlightConfig;
-const cacheUnits: CacheUnit[] = [];
+let cacheUnits: CacheUnit[] = [];
 
 export function initDeepSeek(cfg: FlashlightConfig): void {
   config = cfg;
@@ -182,6 +182,10 @@ export function fireActivation(
     .catch((err) => {
       error(`${label} activation failed: ${err instanceof Error ? err.message : String(err)}`);
     });
+}
+
+export function clearCacheUnits(): void {
+  cacheUnits = [];
 }
 
 function predictCacheHit(totalPromptTokens: number): number {

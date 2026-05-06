@@ -15,7 +15,7 @@ import {
   buildDirectoryTree,
   buildQueryTurn,
 } from "./context.js";
-import { initDeepSeek, probeCache, sendQuery, fireActivation } from "./deepseek.js";
+import { initDeepSeek, probeCache, sendQuery, fireActivation, clearCacheUnits } from "./deepseek.js";
 import { extractResults } from "./extractor.js";
 import { initLogger, info, error } from "./logger.js";
 
@@ -90,6 +90,7 @@ async function handleQuery(
   }
 
   if (needRebuild) {
+    clearCacheUnits();
     const cacheKey = generateCacheKey();
     firstTurnText = buildFirstTurn(cacheKey);
     baseContext = buildBaseContext(workspaceRoot, snapshot);
