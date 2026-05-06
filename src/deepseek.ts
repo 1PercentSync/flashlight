@@ -104,7 +104,7 @@ export async function sendQuery(
     model: config.model,
     messages,
     tools: [SEARCH_TOOL],
-    tool_choice: { type: "function", function: { name: "report_search_results" } },
+    tool_choice: "required",
     stream: true,
     stream_options: { include_usage: true },
     // @ts-expect-error DeepSeek-specific: reasoning_effort "max" + thinking
