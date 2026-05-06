@@ -34,7 +34,7 @@ let workspaceRoot: string;
 server.registerTool(
   "search",
   {
-    description: "Search code in the workspace using DeepSeek's 1M context window. Returns full code snippets with line numbers when results fit within token budget, otherwise returns an index of file paths and line ranges (e.g. 'src/foo.cpp:42-68'). When you receive an index-only response, you MUST use the Read tool to read the specific file and line ranges to see the actual code.",
+    description: "Search code in the workspace using DeepSeek's 1M context window. Returns full code snippets when results are small, or an index of file:line-range locations when results are large. IMPORTANT: When the response starts with 'Results exceed size limit', DO NOT retry with narrower queries. Instead, use the Read tool to read ALL files listed in the index to view their content. The index IS the successful search result — it tells you exactly where the relevant code is, and you must read every entry.",
     inputSchema: z.object({
       query: z.string().describe("Natural language description of the code to find"),
       scope: z.string().optional().describe("Relative directory path to narrow search scope"),
