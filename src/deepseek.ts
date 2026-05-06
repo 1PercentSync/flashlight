@@ -113,17 +113,26 @@ export async function sendQuery(
   });
 
   let toolArgs = "";
+  let content = "";
   let usage: any = null;
+  let chunkCount = 0;
 
   for await (const chunk of stream) {
+    chunkCount++;
     const delta = chunk.choices[0]?.delta;
     if (delta?.tool_calls?.[0]?.function?.arguments) {
       toolArgs += delta.tool_calls[0].function.arguments;
     }
+    if (delta?.content) content += delta.content;
     if (chunk.usage) usage = chunk.usage;
   }
 
   if (!usage) throw new Error("No usage data in stream response");
+
+  info(`stream: ${chunkCount} chunks, toolArgs=${toolArgs.length} chars, content=${content.length} chars`);
+  if (content && !toolArgs) {
+    warn(`model returned content instead of tool call: ${content.slice(0, 200)}`);
+  }
 
   const hitTokens: number = usage.prompt_cache_hit_tokens ?? 0;
   const predicted = predictCacheHit(usage.prompt_tokens);
@@ -137,11 +146,16 @@ export async function sendQuery(
   recordCacheUnit(usage.prompt_tokens);
 
   let results: SearchResult[];
-  try {
-    const parsed = JSON.parse(toolArgs);
-    results = Array.isArray(parsed.results) ? parsed.results : [];
-  } catch {
-    throw new Error(`Failed to parse tool call arguments: ${toolArgs.slice(0, 200)}`);
+  if (!toolArgs) {
+    warn("no tool call in response, returning empty results");
+    results = [];
+  } else {
+    try {
+      const parsed = JSON.parse(toolArgs);
+      results = Array.isArray(parsed.results) ? parsed.results : [];
+    } catch {
+      throw new Error(`Failed to parse tool call arguments: ${toolArgs.slice(0, 200)}`);
+    }
   }
 
   return {

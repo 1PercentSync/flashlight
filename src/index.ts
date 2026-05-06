@@ -50,6 +50,8 @@ async function handleQuery(
   fileTypes?: string[],
 ): Promise<CallToolResult> {
   await ensureInitialized();
+  info(`--- query start: "${query.slice(0, 80)}"${scope ? ` scope=${scope}` : ""}${fileTypes ? ` types=${fileTypes.join(",")}` : ""} ---`);
+
   const snapshot = createSnapshot(workspaceRoot, config);
   info(`snapshot: ${snapshot.size} files`);
 
@@ -61,11 +63,10 @@ async function handleQuery(
   let changeContext = "";
 
   if (!base) {
+    info("no base.json found, rebuilding");
     needRebuild = true;
-    firstTurnText = "";
-    baseContext = "";
-    changeContext = "";
   } else {
+    info(`base loaded: ${Object.keys(base.file_hashes).length} files, ${base.base_token_count} tokens, key=${base.first_turn_text.slice(0, 32)}...`);
     firstTurnText = base.first_turn_text;
 
     const probeResult = await probeCache(firstTurnText);
@@ -76,16 +77,24 @@ async function handleQuery(
       info(`cache probe: hit (${probeResult.hitTokens} tokens)`);
 
       const changes = detectChanges(snapshot, base);
-      info(`changes: ${changes.changedFiles.length} modified, ${changes.deletedFiles.length} deleted, ratio=${changes.changeTokenRatio.toFixed(3)}`);
+      if (changes.changedFiles.length > 0) {
+        info(`changed files: ${changes.changedFiles.join(", ")}`);
+      }
+      if (changes.deletedFiles.length > 0) {
+        info(`deleted files: ${changes.deletedFiles.join(", ")}`);
+      }
+      info(`change ratio: ${changes.changeTokenRatio.toFixed(4)} (threshold: ${config.change_threshold})`);
 
       if (changes.changeTokenRatio > config.change_threshold) {
         info("change ratio exceeds threshold, rebuilding base");
         needRebuild = true;
       } else {
-        const changedSet = new Set([...changes.changedFiles, ...changes.deletedFiles]);
+        info("reusing base, building change context");
         baseContext = base.base_request_text;
         changeContext = buildChangeContext(snapshot, changes);
-        firstTurnText = base.first_turn_text;
+        if (changeContext) {
+          info(`change context: ${changeContext.length} chars`);
+        }
       }
     }
   }
@@ -95,7 +104,7 @@ async function handleQuery(
     const cacheKey = generateCacheKey();
     firstTurnText = buildFirstTurn(cacheKey);
     baseContext = buildBaseContext(workspaceRoot, snapshot);
-    changeContext = "";
+    info(`rebuild: new key=${cacheKey}, base context=${baseContext.length} chars`);
   }
 
   const directoryTree = buildDirectoryTree(
@@ -112,9 +121,19 @@ async function handleQuery(
     messages.push({ role: "user", content: changeContext });
   }
   messages.push({ role: "user", content: queryTurn });
+  info(`sending query: ${messages.length} messages`);
 
   const response = await sendQuery(messages);
-  info(`query: ${response.results.length} results, prompt=${response.usage.prompt_tokens}, hit=${response.usage.prompt_cache_hit_tokens}`);
+  const hitPct = response.usage.prompt_tokens > 0
+    ? ((response.usage.prompt_cache_hit_tokens / response.usage.prompt_tokens) * 100).toFixed(1)
+    : "0";
+  info(`query result: ${response.results.length} results, prompt=${response.usage.prompt_tokens}, hit=${response.usage.prompt_cache_hit_tokens} (${hitPct}%), miss=${response.usage.prompt_cache_miss_tokens}, output=${response.usage.completion_tokens}`);
+
+  if (response.results.length > 0) {
+    for (const r of response.results) {
+      info(`  result: ${r.file}:${r.start_line}-${r.end_line}`);
+    }
+  }
 
   if (needRebuild) {
     const queryTimestamp = Date.now();
@@ -135,24 +154,28 @@ async function handleQuery(
     await withLock(workspaceRoot, async () => {
       writeBase(workspaceRoot, newBase);
     });
-    info("base rebuilt and saved");
+    info(`base saved: ${Object.keys(fileHashes).length} files, first_turn_tokens=${newBase.first_turn_token_count}`);
 
+    info("sending short activation (await)");
     await sendActivation(
       [{ role: "user", content: firstTurnText }, { role: "user", content: "OK" }],
       "short",
     );
+    info("sending base activation (fire-and-forget)");
     fireActivation(
       [{ role: "user", content: firstTurnText }, { role: "user", content: baseContext }, { role: "user", content: "OK" }],
       "base",
     );
   }
 
+  info("sending changes activation (fire-and-forget)");
   fireActivation(
     messages.map((m) => ({ ...m })).slice(0, -1).concat({ role: "user", content: "OK" }),
     "changes",
   );
 
   const output = extractResults(snapshot, response.results);
+  info(`--- query end: returned ${output.length} chars ---`);
   return { content: [{ type: "text", text: output }] };
 }
 
