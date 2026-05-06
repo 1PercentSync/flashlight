@@ -84,10 +84,11 @@
 
 ### index.ts — MCP Server 入口
 
-- [ ] 实现 MCP Server 注册（tool 定义：query, scope, file_types 参数）
-- [ ] 实现查询主流程编排（快照 → 读 Base → 探测 → 决策 → 构造上下文 → 调用 API → 提取结果）
-- [ ] 实现 Base 重建逻辑（缓存失效或变更超阈值时触发）
-- [ ] 实现错误处理（所有错误显式报错，不重试）
+- [X] 实现 MCP Server 注册（tool 定义：query, scope, file_types 参数）
+- [X] 实现查询主流程编排（快照 → 读 Base → 探测 → 决策 → 构造上下文 → 调用 API → 提取结果）
+- [X] 实现 Base 重建逻辑（缓存失效或变更超阈值时触发）
+- [X] 实现错误处理（所有错误显式报错，不重试）
+- [X] 实现三层激活（重建后：短激活 + Base 激活；每次查询后：Changes 激活）
 
 ## Phase 7: 收尾
 
