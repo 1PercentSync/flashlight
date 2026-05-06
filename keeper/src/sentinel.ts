@@ -82,7 +82,7 @@ async function createSentinel(apiKey: string, model: string): Promise<void> {
   try {
     await activate(apiKey, model, [
       { role: "user", content: text },
-      { role: "user", content: "OK" },
+      { role: "user", content: "直接回复OK" },
     ]);
   } catch (err) {
     warn(`sentinel creation failed (${model}): ${err instanceof Error ? err.message : String(err)}`);
