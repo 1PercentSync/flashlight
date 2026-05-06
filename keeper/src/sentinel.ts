@@ -65,8 +65,8 @@ export async function reconcileSentinels(taskApiKeys: string[]): Promise<void> {
       continue;
     }
 
-    await createSentinel(apiKey, model);
-    lastLaunch.set(model, now);
+    const created = await createSentinel(apiKey, model);
+    if (created) lastLaunch.set(model, now);
   }
 }
 
@@ -83,7 +83,7 @@ export async function checkDueSentinels(): Promise<void> {
   }
 }
 
-async function createSentinel(apiKey: string, model: string): Promise<void> {
+async function createSentinel(apiKey: string, model: string): Promise<boolean> {
   const cacheKey = crypto.randomBytes(16).toString("hex");
   const id = `${model}:${cacheKey.slice(0, 8)}`;
   const text = buildSentinelText(cacheKey);
@@ -99,7 +99,7 @@ async function createSentinel(apiKey: string, model: string): Promise<void> {
     ]);
   } catch (err) {
     warn(`sentinel creation failed: model=${model} ${Date.now() - start}ms err=${err instanceof Error ? err.message : String(err)}`);
-    return;
+    return false;
   }
 
   const now = Date.now();
@@ -117,6 +117,7 @@ async function createSentinel(apiKey: string, model: string): Promise<void> {
     probed: false,
   });
   log(`sentinel created: model=${model} estimatedTtl=${(estimatedTtl / 60000).toFixed(0)}min probeIn=${(probeDelay / 60000).toFixed(0)}min ${now - start}ms`);
+  return true;
 }
 
 async function probeSentinel(id: string, sentinel: Sentinel): Promise<void> {
@@ -131,12 +132,12 @@ async function probeSentinel(id: string, sentinel: Sentinel): Promise<void> {
 
   if (result.alive) {
     const observedTtl = age * INCREASE_FACTOR;
-    recordObservedTtl(sentinel.model, observedTtl);
-    log(`sentinel alive: model=${sentinel.model} age=${(age / 60000).toFixed(0)}min hit=${result.hitTokens}/${result.totalTokens} observedTtl=${(observedTtl / 60000).toFixed(0)}min ${probeMs}ms`);
+    recordObservedTtl(sentinel.model, observedTtl, sentinel.creationHour);
+    log(`sentinel alive: model=${sentinel.model} age=${(age / 60000).toFixed(0)}min creationHour=${sentinel.creationHour} hit=${result.hitTokens}/${result.totalTokens} observedTtl=${(observedTtl / 60000).toFixed(0)}min ${probeMs}ms`);
   } else {
     const observedTtl = age * DECREASE_FACTOR;
-    recordObservedTtl(sentinel.model, observedTtl);
-    warn(`sentinel dead: model=${sentinel.model} age=${(age / 60000).toFixed(0)}min hit=${result.hitTokens}/${result.totalTokens} observedTtl=${(observedTtl / 60000).toFixed(0)}min ${probeMs}ms`);
+    recordObservedTtl(sentinel.model, observedTtl, sentinel.creationHour);
+    warn(`sentinel dead: model=${sentinel.model} age=${(age / 60000).toFixed(0)}min creationHour=${sentinel.creationHour} hit=${result.hitTokens}/${result.totalTokens} observedTtl=${(observedTtl / 60000).toFixed(0)}min ${probeMs}ms`);
   }
 
   sentinels.delete(id);

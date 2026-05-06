@@ -77,9 +77,9 @@ function persist(): void {
   }
 }
 
-export function recordObservedTtl(model: string, observedMs: number): void {
+export function recordObservedTtl(model: string, observedMs: number, creationHour?: number): void {
   const m = getModel(model);
-  const hour = new Date().getUTCHours();
+  const hour = creationHour ?? new Date().getUTCHours();
 
   if (m.samples[hour] === 0) {
     m.hourly[hour] = observedMs;
