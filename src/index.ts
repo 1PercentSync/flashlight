@@ -49,6 +49,7 @@ async function handleQuery(
   scope?: string,
   fileTypes?: string[],
 ): Promise<CallToolResult> {
+  await ensureInitialized();
   const snapshot = createSnapshot(workspaceRoot, config);
   info(`snapshot: ${snapshot.size} files`);
 
@@ -155,8 +156,24 @@ async function handleQuery(
   return { content: [{ type: "text", text: output }] };
 }
 
-async function main() {
-  workspaceRoot = process.cwd();
+let initialized = false;
+
+async function ensureInitialized() {
+  if (initialized) return;
+  initialized = true;
+
+  try {
+    const { roots } = await server.server.listRoots();
+    if (roots.length > 0) {
+      const uri = roots[0].uri;
+      workspaceRoot = uri.startsWith("file://") ? decodeURIComponent(uri.slice(7)) : uri;
+    }
+  } catch {}
+
+  if (!workspaceRoot) {
+    workspaceRoot = process.cwd();
+  }
+
   config = loadConfig({
     deepseek_api_key: process.env.DEEPSEEK_API_KEY,
     model: process.env.FLASHLIGHT_MODEL,
@@ -172,7 +189,9 @@ async function main() {
 
   info(`workspace: ${workspaceRoot}`);
   info(`model: ${config.model}, effort: ${config.reasoning_effort}`);
+}
 
+async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }
