@@ -185,18 +185,18 @@ async function handleSingleQuery(
 
     info("sending short activation (await)");
     await sendActivation(
-      [{ role: "user", content: firstTurnText }, { role: "user", content: "OK" }],
+      [{ role: "user", content: firstTurnText }, { role: "user", content: "当前是测试缓存是否依旧生效,直接回复OK" }],
       "short",
     );
     info("sending base activation (fire-and-forget)");
     fireActivation(
-      [{ role: "user", content: firstTurnText }, { role: "user", content: baseContext }, { role: "user", content: "OK" }],
+      [{ role: "user", content: firstTurnText }, { role: "user", content: baseContext }, { role: "user", content: "当前是测试缓存是否依旧生效,直接回复OK" }],
       "base",
     );
   }
 
   info("sending changes activation (fire-and-forget)");
-  const activationMsgs = messages.map((m) => ({ ...m })).slice(0, -1).concat({ role: "user", content: "OK" });
+  const activationMsgs = messages.map((m) => ({ ...m })).slice(0, -1).concat({ role: "user", content: "当前是测试缓存是否依旧生效,直接回复OK" });
   fireActivation(activationMsgs, "changes");
   notifyKeeper("__all__", activationMsgs);
 
@@ -325,7 +325,7 @@ async function handleShardedQuery(
   // Fire activations per-shard (fire-and-forget) + notify keeper
   for (let i = 0; i < shardStates.length; i++) {
     const state = shardStates[i];
-    const msgs = querySets[i].messages.slice(0, -1).concat({ role: "user", content: "OK" });
+    const msgs = querySets[i].messages.slice(0, -1).concat({ role: "user", content: "当前是测试缓存是否依旧生效,直接回复OK" });
     fireActivation(msgs, `shard-${state.entry.id}`);
     notifyKeeper(state.entry.id, msgs);
   }

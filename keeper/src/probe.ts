@@ -46,7 +46,7 @@ export async function probe(
     model,
     messages: [
       { role: "user", content: firstTurnText },
-      { role: "user", content: "直接回复OK" },
+      { role: "user", content: "当前是测试缓存是否依旧生效,直接回复OK" },
     ],
     tools: [SEARCH_TOOL],
     // @ts-expect-error DeepSeek-specific
