@@ -155,15 +155,15 @@ async function handleQuery(
 }
 
 async function main() {
-  const args = Object.fromEntries(
-    process.argv.slice(2).map((arg) => {
-      const [key, ...rest] = arg.replace(/^--/, "").split("=");
-      return [key, rest.join("=")];
-    }),
-  );
-
-  workspaceRoot = args.workspace ?? process.cwd();
-  config = loadConfig(args);
+  workspaceRoot = process.cwd();
+  config = loadConfig({
+    deepseek_api_key: process.env.DEEPSEEK_API_KEY,
+    model: process.env.FLASHLIGHT_MODEL,
+    reasoning_effort: process.env.FLASHLIGHT_REASONING_EFFORT,
+    change_threshold: process.env.FLASHLIGHT_CHANGE_THRESHOLD
+      ? parseFloat(process.env.FLASHLIGHT_CHANGE_THRESHOLD)
+      : undefined,
+  });
 
   initTokenizer();
   initDeepSeek(config);
