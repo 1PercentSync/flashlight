@@ -4,7 +4,7 @@ import { recordObservedTtl, getEstimatedTtlMs, getMinSamples } from "./ttl.js";
 import { log, warn } from "./log.js";
 
 const PROBE_FACTOR = 0.95;
-const INCREASE_FACTOR = 1.5;
+const INCREASE_FACTOR = 1.4;
 const DECREASE_FACTOR = 0.8;
 
 const SENTINEL_API_KEY = process.env.SENTINEL_API_KEY ?? "";
