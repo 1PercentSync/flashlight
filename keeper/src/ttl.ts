@@ -9,33 +9,52 @@ const SAFETY_FACTOR = 0.8;
 const EMA_WEIGHT = 0.3;
 const HOURS = 24;
 
-interface TtlData {
-  hourly: number[];    // 24 per-hour TTL estimates (ms)
-  samples: number[];   // 24 per-hour sample counts
+interface ModelTtl {
+  hourly: number[];
+  samples: number[];
   globalEstimateMs: number;
   totalSamples: number;
+}
+
+interface PersistData {
+  models: Record<string, ModelTtl>;
   lastUpdated: number;
 }
 
-let state: TtlData = freshState();
+const models = new Map<string, ModelTtl>();
+let lastUpdated = Date.now();
 
-function freshState(): TtlData {
+function freshModelTtl(): ModelTtl {
   return {
     hourly: Array(HOURS).fill(INITIAL_ESTIMATE_MS),
     samples: Array(HOURS).fill(0),
     globalEstimateMs: INITIAL_ESTIMATE_MS,
     totalSamples: 0,
-    lastUpdated: Date.now(),
   };
+}
+
+function getModel(model: string): ModelTtl {
+  let m = models.get(model);
+  if (!m) {
+    m = freshModelTtl();
+    models.set(model, m);
+  }
+  return m;
 }
 
 export function loadTtlEstimate(): void {
   try {
     if (fs.existsSync(TTL_FILE)) {
-      const data: TtlData = JSON.parse(fs.readFileSync(TTL_FILE, "utf-8"));
-      if (data.hourly?.length === HOURS) {
-        state = data;
-        log(`TTL loaded: global=${fmt(state.globalEstimateMs)}, ${state.totalSamples} samples`);
+      const data: PersistData = JSON.parse(fs.readFileSync(TTL_FILE, "utf-8"));
+      if (data.models) {
+        for (const [model, ttl] of Object.entries(data.models)) {
+          if (ttl.hourly?.length === HOURS) {
+            models.set(model, ttl);
+          }
+        }
+        lastUpdated = data.lastUpdated ?? Date.now();
+        const names = [...models.keys()].join(", ");
+        log(`TTL loaded: ${models.size} models [${names}]`);
         return;
       }
     }
@@ -47,57 +66,79 @@ function persist(): void {
   try {
     const dir = path.dirname(TTL_FILE);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(TTL_FILE, JSON.stringify(state, null, 2));
+    const data: PersistData = {
+      models: Object.fromEntries(models),
+      lastUpdated,
+    };
+    fs.writeFileSync(TTL_FILE, JSON.stringify(data, null, 2));
   } catch {}
 }
 
-export function recordObservedTtl(observedMs: number): void {
+export function recordObservedTtl(model: string, observedMs: number): void {
+  const m = getModel(model);
   const hour = new Date().getUTCHours();
 
-  if (state.samples[hour] === 0) {
-    state.hourly[hour] = observedMs;
+  if (m.samples[hour] === 0) {
+    m.hourly[hour] = observedMs;
   } else {
-    state.hourly[hour] = (1 - EMA_WEIGHT) * state.hourly[hour] + EMA_WEIGHT * observedMs;
+    m.hourly[hour] = (1 - EMA_WEIGHT) * m.hourly[hour] + EMA_WEIGHT * observedMs;
   }
-  state.samples[hour]++;
+  m.samples[hour]++;
 
-  if (state.totalSamples === 0) {
-    state.globalEstimateMs = observedMs;
+  if (m.totalSamples === 0) {
+    m.globalEstimateMs = observedMs;
   } else {
-    state.globalEstimateMs = (1 - EMA_WEIGHT) * state.globalEstimateMs + EMA_WEIGHT * observedMs;
+    m.globalEstimateMs = (1 - EMA_WEIGHT) * m.globalEstimateMs + EMA_WEIGHT * observedMs;
   }
-  state.totalSamples++;
-  state.lastUpdated = Date.now();
+  m.totalSamples++;
+  lastUpdated = Date.now();
 
   persist();
-  log(`TTL updated: hour=${hour} bucket=${fmt(state.hourly[hour])} global=${fmt(state.globalEstimateMs)} (sample #${state.totalSamples})`);
+  log(`TTL[${model}] updated: hour=${hour} bucket=${fmt(m.hourly[hour])} global=${fmt(m.globalEstimateMs)} (sample #${m.totalSamples})`);
 }
 
-export function getActivationIntervalMs(): number {
+export function getActivationIntervalMs(model: string): number {
+  const m = getModel(model);
   const hour = new Date().getUTCHours();
-  const estimate = state.samples[hour] > 0 ? state.hourly[hour] : state.globalEstimateMs;
+  const estimate = m.samples[hour] > 0 ? m.hourly[hour] : m.globalEstimateMs;
   return estimate * SAFETY_FACTOR;
 }
 
+export function getEstimatedTtlMs(model: string): number {
+  const m = getModel(model);
+  const hour = new Date().getUTCHours();
+  return m.samples[hour] > 0 ? m.hourly[hour] : m.globalEstimateMs;
+}
+
+export function getMinSamples(model: string): number {
+  const m = getModel(model);
+  return Math.min(...m.samples);
+}
+
 export function getTtlState(): {
-  globalEstimateMs: number;
-  currentHour: number;
-  currentHourEstimateMs: number;
-  activationIntervalMs: number;
-  totalSamples: number;
-  hourly: { hour: number; estimateMs: number; samples: number }[];
+  models: Record<string, {
+    globalEstimateMs: number;
+    totalSamples: number;
+    currentHour: number;
+    currentHourEstimateMs: number;
+    activationIntervalMs: number;
+    hourly: { hour: number; estimateMs: number; samples: number }[];
+  }>;
   lastUpdated: number;
 } {
   const hour = new Date().getUTCHours();
-  return {
-    globalEstimateMs: state.globalEstimateMs,
-    currentHour: hour,
-    currentHourEstimateMs: state.samples[hour] > 0 ? state.hourly[hour] : state.globalEstimateMs,
-    activationIntervalMs: getActivationIntervalMs(),
-    totalSamples: state.totalSamples,
-    hourly: state.hourly.map((est, h) => ({ hour: h, estimateMs: est, samples: state.samples[h] })),
-    lastUpdated: state.lastUpdated,
-  };
+  const result: Record<string, any> = {};
+  for (const [model, m] of models) {
+    result[model] = {
+      globalEstimateMs: m.globalEstimateMs,
+      totalSamples: m.totalSamples,
+      currentHour: hour,
+      currentHourEstimateMs: m.samples[hour] > 0 ? m.hourly[hour] : m.globalEstimateMs,
+      activationIntervalMs: getActivationIntervalMs(model),
+      hourly: m.hourly.map((est, h) => ({ hour: h, estimateMs: est, samples: m.samples[h] })),
+    };
+  }
+  return { models: result, lastUpdated };
 }
 
 function fmt(ms: number): string {

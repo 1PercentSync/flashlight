@@ -2,7 +2,7 @@ import http from "node:http";
 import { register, remove, getAll } from "./store.js";
 import { probe, activate } from "./probe.js";
 import { startScheduler, getUnexpectedDeaths } from "./scheduler.js";
-import { ensureSentinel, getSentinelStatus } from "./sentinel.js";
+import { getSentinelStatus } from "./sentinel.js";
 import { loadTtlEstimate, getTtlState } from "./ttl.js";
 import { log, warn } from "./log.js";
 
@@ -46,7 +46,6 @@ const server = http.createServer(async (req, res) => {
       const body = await parseBody(req);
       const created = register(body);
       log(`task registered: workspace=${body.workspaceId} shard=${body.shardId}`);
-      ensureSentinel(body.apiKey, body.model).catch(() => {});
       json(res, created ? 201 : 200, { ok: true, created });
       return;
     }

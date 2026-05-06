@@ -1,23 +1,39 @@
 import { getAll, getExpired, remove, type KeepaliveTask } from "./store.js";
 import { probe, activate } from "./probe.js";
-import { checkSentinels } from "./sentinel.js";
+import { reconcileSentinels, checkDueSentinels } from "./sentinel.js";
 import { getActivationIntervalMs } from "./ttl.js";
 import { log, warn } from "./log.js";
 
-const TICK_INTERVAL_MS = 60_000; // 1 min
+const TICK_INTERVAL_MS = 60_000;
 
 let unexpectedDeaths = 0;
 
 export function startScheduler(): void {
-  setInterval(tick, TICK_INTERVAL_MS);
+  scheduleNext();
   log("scheduler started");
+}
+
+function scheduleNext(): void {
+  setTimeout(async () => {
+    await tick();
+    scheduleNext();
+  }, TICK_INTERVAL_MS);
 }
 
 async function tick(): Promise<void> {
   try {
-    await checkSentinels();
+    // Collect active (model → apiKeys) from tasks
+    const activeModels = new Map<string, string[]>();
+    for (const task of getAll()) {
+      if (!activeModels.has(task.model)) activeModels.set(task.model, []);
+      const keys = activeModels.get(task.model)!;
+      if (!keys.includes(task.apiKey)) keys.push(task.apiKey);
+    }
+
+    await reconcileSentinels(activeModels);
+    await checkDueSentinels();
   } catch (err) {
-    warn(`sentinel check error: ${err instanceof Error ? err.message : String(err)}`);
+    warn(`sentinel error: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   for (const task of getExpired()) {
@@ -25,12 +41,12 @@ async function tick(): Promise<void> {
     remove(task.id);
   }
 
-  const intervalMs = getActivationIntervalMs();
   const now = Date.now();
-  const due = getAll().filter((t) => now - t.lastKeepaliveAt >= intervalMs);
-
-  for (const task of due) {
-    await processTask(task);
+  for (const task of getAll()) {
+    const intervalMs = getActivationIntervalMs(task.model);
+    if (now - task.lastKeepaliveAt >= intervalMs) {
+      await processTask(task);
+    }
   }
 }
 
