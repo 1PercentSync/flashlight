@@ -10,5 +10,6 @@ services:
       - MAX_LIFETIME_MS=172800000
       - ENABLE_REFRESH=false
       # - SENTINEL_API_KEY=sk-...
+      - SENTINEL_MODELS=deepseek-v4-flash
     volumes:
       - ./data:/app/data
