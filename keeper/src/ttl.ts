@@ -6,7 +6,8 @@ const DATA_DIR = process.env.DATA_DIR ?? "/app/data";
 const TTL_FILE = path.join(DATA_DIR, "ttl_estimate.json");
 const INITIAL_ESTIMATE_MS = 43_200_000; // 12h
 const SAFETY_FACTOR = 0.8;
-const EMA_WEIGHT = 0.3;
+const BUCKET_EMA_WEIGHT = 0.3;
+const GLOBAL_EMA_WEIGHT = 0.1;
 const HOURS = 24;
 
 interface ModelTtl {
@@ -26,7 +27,7 @@ let lastUpdated = Date.now();
 
 function freshModelTtl(): ModelTtl {
   return {
-    hourly: Array(HOURS).fill(INITIAL_ESTIMATE_MS),
+    hourly: Array(HOURS).fill(0),
     samples: Array(HOURS).fill(0),
     globalEstimateMs: INITIAL_ESTIMATE_MS,
     totalSamples: 0,
@@ -83,14 +84,14 @@ export function recordObservedTtl(model: string, observedMs: number): void {
   if (m.samples[hour] === 0) {
     m.hourly[hour] = observedMs;
   } else {
-    m.hourly[hour] = (1 - EMA_WEIGHT) * m.hourly[hour] + EMA_WEIGHT * observedMs;
+    m.hourly[hour] = (1 - BUCKET_EMA_WEIGHT) * m.hourly[hour] + BUCKET_EMA_WEIGHT * observedMs;
   }
   m.samples[hour]++;
 
   if (m.totalSamples === 0) {
     m.globalEstimateMs = observedMs;
   } else {
-    m.globalEstimateMs = (1 - EMA_WEIGHT) * m.globalEstimateMs + EMA_WEIGHT * observedMs;
+    m.globalEstimateMs = (1 - GLOBAL_EMA_WEIGHT) * m.globalEstimateMs + GLOBAL_EMA_WEIGHT * observedMs;
   }
   m.totalSamples++;
   lastUpdated = Date.now();
