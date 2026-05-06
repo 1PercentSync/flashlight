@@ -60,7 +60,7 @@ export function initDeepSeek(cfg: FlashlightConfig): void {
   config = cfg;
   client = new OpenAI({
     apiKey: cfg.deepseek_api_key,
-    baseURL: "https://api.deepseek.com/beta",
+    baseURL: "https://api.deepseek.com",
   });
 }
 
@@ -104,7 +104,6 @@ export async function sendQuery(
     model: config.model,
     messages,
     tools: [SEARCH_TOOL],
-    tool_choice: "required",
     stream: true,
     stream_options: { include_usage: true },
     // @ts-expect-error DeepSeek-specific: reasoning_effort "max" + thinking
