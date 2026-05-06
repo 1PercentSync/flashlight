@@ -1,5 +1,6 @@
 {
   "name": "@1percentsync/flashlight-keeper",
+  "private": true,
   "version": "0.5.0",
   "description": "Cache keepalive service for flashlight MCP server",
   "type": "module",
