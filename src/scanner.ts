@@ -30,21 +30,35 @@ export function sortByGitTime(workspaceRoot: string, files: string[]): string[] 
   const times = new Map<string, number>();
   const hasGit = fs.existsSync(path.join(workspaceRoot, ".git"));
 
-  for (const file of files) {
-    if (hasGit) {
-      try {
-        const stdout = execSync(
-          `git log -1 --format=%ct -- "${file}"`,
-          { cwd: workspaceRoot, encoding: "utf-8", timeout: 5000 },
-        ).trim();
-        if (stdout) {
-          times.set(file, parseInt(stdout, 10));
-          continue;
+  if (hasGit) {
+    try {
+      const stdout = execSync(
+        `git log --format="%ct %H" --name-only --diff-filter=ACMR HEAD`,
+        { cwd: workspaceRoot, encoding: "utf-8", timeout: 30000, maxBuffer: 50 * 1024 * 1024 },
+      );
+      let currentTime = 0;
+      for (const line of stdout.split("\n")) {
+        const match = line.match(/^(\d+) [0-9a-f]+$/);
+        if (match) {
+          currentTime = parseInt(match[1], 10);
+        } else if (line.trim() && currentTime > 0) {
+          if (!times.has(line.trim())) {
+            times.set(line.trim(), currentTime);
+          }
         }
-      } catch {}
+      }
+    } catch {}
+  }
+
+  for (const file of files) {
+    if (!times.has(file)) {
+      const fullPath = path.join(workspaceRoot, file);
+      try {
+        times.set(file, Math.floor(fs.statSync(fullPath).mtimeMs / 1000));
+      } catch {
+        times.set(file, 0);
+      }
     }
-    const fullPath = path.join(workspaceRoot, file);
-    times.set(file, Math.floor(fs.statSync(fullPath).mtimeMs / 1000));
   }
 
   return [...files].sort((a, b) => (times.get(a) ?? 0) - (times.get(b) ?? 0));
