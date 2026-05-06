@@ -76,6 +76,7 @@ export async function probeCache(firstTurnText: string): Promise<{
   const resp = await client.chat.completions.create({
     model: config.model,
     messages,
+    tools: [SEARCH_TOOL],
     // @ts-expect-error DeepSeek-specific
     thinking: { type: "disabled" },
   });
@@ -162,6 +163,7 @@ export async function sendActivation(
     const resp = await client.chat.completions.create({
       model: config.model,
       messages,
+      tools: [SEARCH_TOOL],
       // @ts-expect-error DeepSeek-specific
       thinking: { type: "disabled" },
     });
@@ -186,7 +188,7 @@ export function fireActivation(
   messages: { role: "user"; content: string }[],
   label: string,
 ): void {
-  sendActivation(messages, label);
+  sendActivation(messages, label).catch(() => {});
 }
 
 export function clearCacheUnits(): void {
