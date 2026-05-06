@@ -1,6 +1,6 @@
 {
   "name": "@1percentsync/flashlight",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "MCP Server that uses DeepSeek's 1M context window for whole-codebase code search",
   "type": "module",
   "bin": {
@@ -33,12 +33,10 @@
     "@modelcontextprotocol/server": "^2.0.0-alpha.2",
     "ignore": "^7.0.5",
     "openai": "^6.36.0",
-    "proper-lockfile": "^4.1.2",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
-    "@types/proper-lockfile": "^4.1.4",
     "typescript": "^6.0.3"
   }
 }
