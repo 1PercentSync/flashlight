@@ -40,17 +40,17 @@
 
 ### scanner.ts — 文件扫描
 
-- [ ] 实现 .gitignore 规则加载与文件过滤（使用 `ignore` 包）
-- [ ] 实现 ext_whitelist 文件类型过滤
-- [ ] 实现文件排序：git commit 时间（回退到 mtime）
-- [ ] 实现工作区快照创建（文件路径 + 内容 + hash）
+- [X] 实现 .gitignore 规则加载与文件过滤（使用 `ignore` 包）
+- [X] 实现 ext_whitelist 文件类型过滤
+- [X] 实现文件排序：git commit 时间（回退到 mtime）
+- [X] 实现工作区快照创建（文件路径 + 内容 + hash）
 
 ### base.ts — Base 管理
 
-- [ ] 实现 base.json 读取
-- [ ] 实现 base.json 写入（含时间戳比较保护）
-- [ ] 实现变更检测（快照 hash 与 base.json 中 file_hashes 对比）
-- [ ] 实现变更区 token 占比计算（调用 tokenizer）
+- [X] 实现 base.json 读取
+- [X] 实现 base.json 写入（含时间戳比较保护）
+- [X] 实现变更检测（快照 hash 与 base.json 中 file_hashes 对比）
+- [X] 实现变更区 token 占比计算（调用 tokenizer）
 
 ## Phase 4: 上下文拼接与 API 客户端
 
