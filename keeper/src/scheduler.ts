@@ -52,9 +52,9 @@ async function tick(): Promise<void> {
 
   const elapsed = Date.now() - tickStart;
   if (activatedCount > 0 || expired.length > 0 || tickCount % 60 === 0) {
-    const sentinelInfo = getSentinelStatus().map(
-      (s) => `${s.model} age=${(s.ageMs / 60000).toFixed(0)}min probeIn=${(s.probeInMs / 60000).toFixed(0)}min`,
-    ).join("; ") || "none";
+    const sList = getSentinelStatus();
+    const sentinelInfo = sList.length === 0 ? "none"
+      : `${sList.length} active [${sList.map((s) => `${s.id} age=${(s.ageMs / 60000).toFixed(0)}min probeIn=${(s.probeInMs / 60000).toFixed(0)}min`).join("; ")}]`;
     log(`tick #${tickCount}: ${tasks.length} tasks, ${activatedCount} activated, ${expired.length} expired, ${elapsed}ms | sentinel: ${sentinelInfo}`);
   }
 }

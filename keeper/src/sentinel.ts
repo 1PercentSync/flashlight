@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { probe, activate } from "./probe.js";
-import { recordObservedTtl, getEstimatedTtlMs } from "./ttl.js";
+import { recordObservedTtl, getEstimatedTtlMs, getMinSamples } from "./ttl.js";
 import { log, warn } from "./log.js";
 
 const PROBE_FACTOR = 0.95;
@@ -11,7 +11,17 @@ const SENTINEL_API_KEY = process.env.SENTINEL_API_KEY ?? "";
 const SENTINEL_MODELS_RAW = process.env.SENTINEL_MODELS ?? "deepseek-v4-flash";
 const SENTINEL_MODELS = SENTINEL_MODELS_RAW.split(",").map((s) => s.trim()).filter(Boolean);
 
+const OVERRIDE_INTERVAL_MS = process.env.SENTINEL_INTERVAL_MS ? parseInt(process.env.SENTINEL_INTERVAL_MS, 10) : 0;
+
+function getLaunchIntervalMs(model: string): number {
+  if (OVERRIDE_INTERVAL_MS > 0) return OVERRIDE_INTERVAL_MS;
+  const min = getMinSamples(model);
+  if (min < 3) return 60 * 60_000;     // 60min — exploration (24 hours in 1 day)
+  return 110 * 60_000;                  // 110min — steady state (not hour-aligned)
+}
+
 interface Sentinel {
+  id: string;
   apiKey: string;
   model: string;
   cacheKey: string;
@@ -22,10 +32,7 @@ interface Sentinel {
 }
 
 const sentinels = new Map<string, Sentinel>();
-
-function sentinelId(model: string): string {
-  return model;
-}
+const lastLaunch = new Map<string, number>(); // model → last creation timestamp
 
 const PADDING = "x".repeat(512);
 
@@ -40,17 +47,17 @@ export function getApiKeyForSentinel(taskApiKeys: string[]): string {
 }
 
 export async function reconcileSentinels(taskApiKeys: string[]): Promise<void> {
-  for (const [id] of sentinels) {
-    if (!SENTINEL_MODELS.includes(id)) {
+  for (const [id, sentinel] of sentinels) {
+    if (!SENTINEL_MODELS.includes(sentinel.model)) {
       sentinels.delete(id);
-      log(`sentinel removed (not in SENTINEL_MODELS): model=${id}`);
+      log(`sentinel removed (not in SENTINEL_MODELS): ${id}`);
     }
   }
 
+  const now = Date.now();
   for (const model of SENTINEL_MODELS) {
-    const id = sentinelId(model);
-    const existing = sentinels.get(id);
-    if (existing && !existing.probed) continue;
+    const last = lastLaunch.get(model) ?? 0;
+    if (now - last < getLaunchIntervalMs(model)) continue;
 
     const apiKey = getApiKeyForSentinel(taskApiKeys);
     if (!apiKey) {
@@ -59,6 +66,7 @@ export async function reconcileSentinels(taskApiKeys: string[]): Promise<void> {
     }
 
     await createSentinel(apiKey, model);
+    lastLaunch.set(model, now);
   }
 }
 
@@ -76,8 +84,8 @@ export async function checkDueSentinels(): Promise<void> {
 }
 
 async function createSentinel(apiKey: string, model: string): Promise<void> {
-  const id = sentinelId(model);
   const cacheKey = crypto.randomBytes(16).toString("hex");
+  const id = `${model}:${cacheKey.slice(0, 8)}`;
   const text = buildSentinelText(cacheKey);
   const keyLabel = SENTINEL_API_KEY ? "dedicated" : `...${apiKey.slice(-4)}`;
 
@@ -99,6 +107,7 @@ async function createSentinel(apiKey: string, model: string): Promise<void> {
   const probeDelay = estimatedTtl * PROBE_FACTOR;
 
   sentinels.set(id, {
+    id,
     apiKey,
     model,
     cacheKey,
@@ -133,9 +142,10 @@ async function probeSentinel(id: string, sentinel: Sentinel): Promise<void> {
   sentinels.delete(id);
 }
 
-export function getSentinelStatus(): { model: string; ageMs: number; probeInMs: number }[] {
+export function getSentinelStatus(): { id: string; model: string; ageMs: number; probeInMs: number }[] {
   const now = Date.now();
   return [...sentinels.values()].map((s) => ({
+    id: s.id,
     model: s.model,
     ageMs: now - s.createdAt,
     probeInMs: Math.max(0, s.probeAt - now),
