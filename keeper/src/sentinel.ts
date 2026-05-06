@@ -63,7 +63,12 @@ export async function checkDueSentinels(): Promise<void> {
   const now = Date.now();
   for (const [id, sentinel] of sentinels) {
     if (sentinel.probed || now < sentinel.probeAt) continue;
-    await probeSentinel(id, sentinel);
+    try {
+      await probeSentinel(id, sentinel);
+    } catch (err) {
+      warn(`sentinel probe error (${id}): ${err instanceof Error ? err.message : String(err)}`);
+      sentinels.delete(id);
+    }
   }
 }
 

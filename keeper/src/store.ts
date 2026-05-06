@@ -24,6 +24,7 @@ export function register(input: Omit<KeepaliveTask, "id" | "registeredAt" | "las
     existing.model = input.model;
     existing.messages = input.messages;
     existing.lastQueryAt = now;
+    existing.lastKeepaliveAt = now;
     return false;
   }
 

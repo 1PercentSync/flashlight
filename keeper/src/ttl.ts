@@ -71,7 +71,9 @@ function persist(): void {
       lastUpdated,
     };
     fs.writeFileSync(TTL_FILE, JSON.stringify(data, null, 2));
-  } catch {}
+  } catch (err) {
+    log(`TTL persist failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 export function recordObservedTtl(model: string, observedMs: number): void {
