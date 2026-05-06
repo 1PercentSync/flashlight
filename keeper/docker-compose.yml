@@ -12,6 +12,6 @@ services:
       # - SENTINEL_API_KEY=sk-...
       - SENTINEL_MODELS=deepseek-v4-flash
       # - INITIAL_TTL_MS=43200000
-      # - SENTINEL_INTERVAL_MS=3600000
+      # - SENTINEL_INTERVAL_MS=3600000  # default adaptive: 60min explore / 110min steady
     volumes:
       - ./data:/app/data
