@@ -4,11 +4,13 @@ import crypto from "node:crypto";
 import { execSync } from "node:child_process";
 import ignore, { type Ignore } from "ignore";
 import type { FlashlightConfig } from "./config.js";
+import { countTokens } from "./tokenizer.js";
 
 export interface FileEntry {
   relativePath: string;
   content: string;
   hash: string;
+  tokens: number;
 }
 
 export type Snapshot = Map<string, FileEntry>;
@@ -20,7 +22,8 @@ export function createSnapshot(workspaceRoot: string, config: FlashlightConfig):
     const fullPath = path.join(workspaceRoot, relativePath);
     const content = fs.readFileSync(fullPath, "utf-8");
     const hash = crypto.createHash("sha256").update(content).digest("hex");
-    snapshot.set(relativePath, { relativePath, content, hash });
+    const tokens = countTokens(content);
+    snapshot.set(relativePath, { relativePath, content, hash, tokens });
   }
   return snapshot;
 }

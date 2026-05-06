@@ -4,6 +4,7 @@ export interface FlashlightConfig {
   model: "deepseek-v4-flash" | "deepseek-v4-pro";
   reasoning_effort: "high" | "max";
   change_threshold: number;
+  max_context_tokens: number;
 }
 
 const DEFAULT_EXT_WHITELIST = [
@@ -103,11 +104,17 @@ export function loadConfig(args: Record<string, unknown>): FlashlightConfig {
     changeThreshold = args.change_threshold;
   }
 
+  let maxContextTokens = 900_000;
+  if (typeof args.max_context_tokens === "number" && args.max_context_tokens >= 100_000 && args.max_context_tokens <= 1_000_000) {
+    maxContextTokens = args.max_context_tokens;
+  }
+
   return {
     deepseek_api_key: apiKey,
     ext_whitelist: extWhitelist,
     model,
     reasoning_effort: reasoningEffort,
     change_threshold: changeThreshold,
+    max_context_tokens: maxContextTokens,
   };
 }

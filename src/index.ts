@@ -6,18 +6,26 @@ import { loadConfig, type FlashlightConfig } from "./config.js";
 import { initTokenizer, countTokens } from "./tokenizer.js";
 import { withLock } from "./lock.js";
 import { createSnapshot, type Snapshot } from "./scanner.js";
-import { readBase, writeBase, detectChanges, type BaseData } from "./base.js";
+import {
+  readBase, writeBase, detectChanges,
+  readShardMeta, writeShardMeta, readShardBase, writeShardBase, cleanupShardFiles,
+  type BaseData, type ShardMeta,
+} from "./base.js";
 import {
   generateCacheKey,
   buildFirstTurn,
+  buildFirstTurnSharded,
   buildBaseContext,
+  buildShardBaseContext,
   buildChangeContext,
   buildDirectoryTree,
   buildQueryTurn,
 } from "./context.js";
-import { initDeepSeek, probeCache, sendQuery, sendActivation, fireActivation, clearCacheUnits } from "./deepseek.js";
+import { initDeepSeek, probeCache, sendQuery, sendActivation, fireActivation, sendParallelQueries, clearCacheUnits } from "./deepseek.js";
 import { extractResults } from "./extractor.js";
+import { resolveShardPlan, type ShardPlan, type ShardEntry } from "./shard.js";
 import { initLogger, info, error } from "./logger.js";
+import type { SearchResult } from "./deepseek.js";
 
 const server = new McpServer({ name: "flashlight", version: "0.1.0" });
 let config: FlashlightConfig;
@@ -55,6 +63,25 @@ async function handleQuery(
   const snapshot = createSnapshot(workspaceRoot, config);
   info(`snapshot: ${snapshot.size} files`);
 
+  const storedMeta = readShardMeta(workspaceRoot);
+  const plan = resolveShardPlan(snapshot, config.max_context_tokens, storedMeta);
+
+  if (plan.shards.length === 1 && plan.shards[0].id === "__all__") {
+    return handleSingleQuery(snapshot, query, scope, fileTypes);
+  }
+
+  info(`sharded: ${plan.shards.length} shards [${plan.shards.map((s) => `${s.id}(${s.tokens}t)`).join(", ")}]`);
+  return handleShardedQuery(snapshot, plan, storedMeta, query, scope, fileTypes);
+}
+
+// --- Single-shard path (existing logic) ---
+
+async function handleSingleQuery(
+  snapshot: Snapshot,
+  query: string,
+  scope?: string,
+  fileTypes?: string[],
+): Promise<CallToolResult> {
   const base = await withLock(workspaceRoot, async () => readBase(workspaceRoot));
 
   let needRebuild = false;
@@ -179,6 +206,190 @@ async function handleQuery(
   return { content: [{ type: "text", text: output }] };
 }
 
+// --- Multi-shard path ---
+
+interface ShardState {
+  entry: ShardEntry;
+  base: BaseData | null;
+  needRebuild: boolean;
+  firstTurnText: string;
+  baseContext: string;
+  changeContext: string;
+}
+
+async function handleShardedQuery(
+  snapshot: Snapshot,
+  plan: ShardPlan,
+  storedMeta: ShardMeta | null,
+  query: string,
+  scope?: string,
+  fileTypes?: string[],
+): Promise<CallToolResult> {
+  const planChanged = !storedMeta || storedMeta.planHash !== plan.planHash;
+  if (planChanged) {
+    info(`shard plan changed (stored=${storedMeta?.planHash ?? "none"}, current=${plan.planHash})`);
+  }
+
+  // Prepare per-shard state
+  const shardStates: ShardState[] = plan.shards.map((entry) => ({
+    entry,
+    base: planChanged ? null : readShardBase(workspaceRoot, entry.id),
+    needRebuild: planChanged,
+    firstTurnText: "",
+    baseContext: "",
+    changeContext: "",
+  }));
+
+  // Probe ONE representative shard for cache liveness
+  if (!planChanged) {
+    const probeTarget = shardStates.find((s) => s.base !== null);
+    if (probeTarget) {
+      const probeResult = await probeCache(probeTarget.base!.first_turn_text);
+      if (!probeResult.alive) {
+        info("shard cache probe: miss, rebuilding all shards");
+        for (const s of shardStates) s.needRebuild = true;
+      } else {
+        info(`shard cache probe: hit (${probeResult.hitTokens} tokens)`);
+      }
+    } else {
+      for (const s of shardStates) s.needRebuild = true;
+    }
+  }
+
+  // Per-shard: decide rebuild vs reuse vs incremental
+  for (const state of shardStates) {
+    if (state.needRebuild) {
+      clearCacheUnits();
+      const cacheKey = generateCacheKey();
+      state.firstTurnText = buildFirstTurnSharded(cacheKey);
+      state.baseContext = buildShardBaseContext(workspaceRoot, snapshot, state.entry.files);
+      info(`shard "${state.entry.id}": rebuild, key=${cacheKey}, ${state.baseContext.length} chars`);
+    } else if (state.base) {
+      state.firstTurnText = state.base.first_turn_text;
+
+      const changes = detectChanges(snapshot, state.base);
+      if (changes.changeTokenRatio > config.change_threshold) {
+        info(`shard "${state.entry.id}": change ratio ${changes.changeTokenRatio.toFixed(4)} exceeds threshold, rebuilding`);
+        state.needRebuild = true;
+        clearCacheUnits();
+        const cacheKey = generateCacheKey();
+        state.firstTurnText = buildFirstTurnSharded(cacheKey);
+        state.baseContext = buildShardBaseContext(workspaceRoot, snapshot, state.entry.files);
+      } else {
+        state.baseContext = state.base.base_request_text;
+        state.changeContext = buildChangeContext(snapshot, changes);
+        if (state.changeContext) {
+          info(`shard "${state.entry.id}": incremental, ${state.changeContext.length} chars change`);
+        }
+      }
+    }
+  }
+
+  // Build full directory tree (all files, all shards)
+  const directoryTree = buildDirectoryTree(snapshot, null);
+
+  // Build query messages for each shard
+  const querySets = shardStates.map((state) => {
+    const queryTurn = buildQueryTurn(directoryTree, query, scope, fileTypes, {
+      id: state.entry.id,
+      totalShards: plan.shards.length,
+    });
+
+    const messages: { role: "user"; content: string }[] = [
+      { role: "user", content: state.firstTurnText },
+      { role: "user", content: state.baseContext },
+    ];
+    if (state.changeContext) {
+      messages.push({ role: "user", content: state.changeContext });
+    }
+    messages.push({ role: "user", content: queryTurn });
+
+    return { shardId: state.entry.id, messages };
+  });
+
+  info(`sending parallel queries to ${querySets.length} shards`);
+  const responses = await sendParallelQueries(querySets);
+
+  // Log per-shard results
+  for (const { shardId, response } of responses) {
+    const hitPct = response.usage.prompt_tokens > 0
+      ? ((response.usage.prompt_cache_hit_tokens / response.usage.prompt_tokens) * 100).toFixed(1)
+      : "0";
+    info(`shard "${shardId}": ${response.results.length} results, hit=${hitPct}%`);
+  }
+
+  // Merge results
+  const mergedResults = mergeShardResults(responses.map((r) => r.response.results));
+  info(`merged: ${mergedResults.length} total results`);
+
+  // Fire activations per-shard (fire-and-forget)
+  for (let i = 0; i < shardStates.length; i++) {
+    const state = shardStates[i];
+    const msgs = querySets[i].messages.slice(0, -1).concat({ role: "user", content: "OK" });
+    fireActivation(msgs, `shard-${state.entry.id}`);
+  }
+
+  // Persist shard state
+  const queryTimestamp = Date.now();
+  await withLock(workspaceRoot, async () => {
+    const newMeta: ShardMeta = {
+      planHash: plan.planHash,
+      shards: plan.shards.map((s) => ({ id: s.id, prefix: s.prefix })),
+      timestamp: queryTimestamp,
+    };
+    writeShardMeta(workspaceRoot, newMeta);
+
+    for (let i = 0; i < shardStates.length; i++) {
+      const state = shardStates[i];
+      if (!state.needRebuild) continue;
+
+      const matchingResponse = responses.find((r) => r.shardId === state.entry.id);
+      if (!matchingResponse) continue;
+
+      const fileHashes: Record<string, string> = {};
+      for (const filePath of state.entry.files) {
+        const entry = snapshot.get(filePath);
+        if (entry) fileHashes[filePath] = entry.hash;
+      }
+
+      const newBase: BaseData = {
+        first_turn_text: state.firstTurnText,
+        first_turn_token_count: countTokens(state.firstTurnText),
+        base_token_count: matchingResponse.response.usage.prompt_tokens,
+        base_request_text: state.baseContext,
+        file_hashes: fileHashes,
+        timestamp: queryTimestamp,
+      };
+      writeShardBase(workspaceRoot, state.entry.id, newBase);
+    }
+
+    cleanupShardFiles(workspaceRoot, plan.shards.map((s) => s.id));
+  });
+
+  const output = extractResults(snapshot, mergedResults);
+  info(`--- query end: returned ${output.length} chars ---`);
+  return { content: [{ type: "text", text: output }] };
+}
+
+function mergeShardResults(resultSets: SearchResult[][]): SearchResult[] {
+  const seen = new Set<string>();
+  const merged: SearchResult[] = [];
+
+  for (const results of resultSets) {
+    for (const r of results) {
+      const key = `${r.file}:${r.start_line}:${r.end_line}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        merged.push(r);
+      }
+    }
+  }
+
+  return merged;
+}
+
+// --- Initialization ---
+
 let initialized = false;
 
 async function ensureInitialized() {
@@ -203,6 +414,9 @@ async function ensureInitialized() {
     reasoning_effort: process.env.FLASHLIGHT_REASONING_EFFORT,
     change_threshold: process.env.FLASHLIGHT_CHANGE_THRESHOLD
       ? parseFloat(process.env.FLASHLIGHT_CHANGE_THRESHOLD)
+      : undefined,
+    max_context_tokens: process.env.FLASHLIGHT_MAX_CONTEXT_TOKENS
+      ? parseInt(process.env.FLASHLIGHT_MAX_CONTEXT_TOKENS, 10)
       : undefined,
   });
 

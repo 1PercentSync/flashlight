@@ -17,12 +17,32 @@ const SYSTEM_INSTRUCTIONS = `你的任务是作为代码检索助手。用户会
 - 对于import/export关系，同时返回两端的代码
 - 如果无法找到相关代码，返回空的results数组`;
 
+const SHARDED_SYSTEM_INSTRUCTIONS = `你的任务是作为代码检索助手。用户会在后续消息中给你一个代码库的部分源代码文件（按目录分片），然后提出关于代码的问题。
+
+你正在查看的是项目的一个子集。完整项目目录树会在查询中提供，你只负责在你收到的文件中查找相关代码。
+
+你需要仔细阅读所有提供的代码文件，理解它们的结构、依赖关系和功能实现，然后根据用户的查询找到最相关的代码片段，并调用 report_search_results 返回结果。
+
+注意事项：
+- 按相关性从高到低排序
+- 如果同一个文件有多个相关片段，分别列出
+- 行号从1开始计数
+- 包含函数或类的完整定义，不要截断
+- 如果查询涉及多个文件的交互，返回所有相关文件的片段
+- 优先返回定义而非引用
+- 对于import/export关系，同时返回��端的代码（如果在你的分片中）
+- 如果无法找到相关代码，返回空的results数组`;
+
 export function generateCacheKey(): string {
   return crypto.randomBytes(16).toString("hex");
 }
 
 export function buildFirstTurn(cacheKey: string): string {
   return `${cacheKey},前面的是缓存测试key,可以忽略。\n\n${SYSTEM_INSTRUCTIONS}`;
+}
+
+export function buildFirstTurnSharded(cacheKey: string): string {
+  return `${cacheKey},前面的是缓存测试key,可以忽略。\n\n${SHARDED_SYSTEM_INSTRUCTIONS}`;
 }
 
 export function buildBaseContext(
@@ -36,6 +56,15 @@ export function buildBaseContext(
   }
   files = sortByGitTime(workspaceRoot, files);
   return files.map((f) => formatFile(snapshot.get(f)!)).join("\n\n");
+}
+
+export function buildShardBaseContext(
+  workspaceRoot: string,
+  snapshot: Snapshot,
+  shardFiles: string[],
+): string {
+  const sorted = sortByGitTime(workspaceRoot, shardFiles);
+  return sorted.map((f) => formatFile(snapshot.get(f)!)).join("\n\n");
 }
 
 export function buildChangeContext(
@@ -105,8 +134,15 @@ export function buildQueryTurn(
   query: string,
   scope?: string,
   fileTypes?: string[],
+  shardInfo?: { id: string; totalShards: number },
 ): string {
-  const parts: string[] = ["目录树:", directoryTree, ""];
+  const parts: string[] = [];
+
+  if (shardInfo) {
+    parts.push(`[分片: ${shardInfo.id}，共 ${shardInfo.totalShards} 个分片]`, "");
+  }
+
+  parts.push("目录树:", directoryTree, "");
 
   if (scope) parts.push(`搜索范围: ${scope}`);
   if (fileTypes?.length) parts.push(`文件类型限定: ${fileTypes.join(", ")}`);

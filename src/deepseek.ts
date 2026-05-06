@@ -205,6 +205,32 @@ export function fireActivation(
   sendActivation(messages, label).catch(() => {});
 }
 
+export async function sendParallelQueries(
+  querySets: { shardId: string; messages: { role: "user"; content: string }[] }[],
+): Promise<{ shardId: string; response: QueryResponse }[]> {
+  const results = await Promise.allSettled(
+    querySets.map(async ({ shardId, messages }) => {
+      const response = await sendQuery(messages);
+      return { shardId, response };
+    }),
+  );
+
+  const successful: { shardId: string; response: QueryResponse }[] = [];
+  for (const result of results) {
+    if (result.status === "fulfilled") {
+      successful.push(result.value);
+    } else {
+      error(`shard query failed: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`);
+    }
+  }
+
+  if (successful.length === 0 && querySets.length > 0) {
+    throw new Error("All shard queries failed");
+  }
+
+  return successful;
+}
+
 export function clearCacheUnits(): void {
   cacheUnits = [];
 }
