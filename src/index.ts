@@ -243,7 +243,7 @@ async function handleShardedQuery(
   if (!planChanged) {
     const probeTarget = shardStates.find((s) => s.base !== null);
     if (probeTarget) {
-      const probeResult = await probeCache(probeTarget.base!.first_turn_text);
+      const probeResult = await probeCache(probeTarget.base!.first_turn_text, probeTarget.entry.id);
       if (!probeResult.alive) {
         info("shard cache probe: miss, rebuilding all shards");
         for (const s of shardStates) s.needRebuild = true;
@@ -258,7 +258,7 @@ async function handleShardedQuery(
   // Per-shard: decide rebuild vs reuse vs incremental
   for (const state of shardStates) {
     if (state.needRebuild) {
-      clearCacheUnits();
+      clearCacheUnits(state.entry.id);
       const cacheKey = generateCacheKey();
       state.firstTurnText = buildFirstTurnSharded(cacheKey);
       state.baseContext = buildShardBaseContext(workspaceRoot, snapshot, state.entry.files);
@@ -271,7 +271,7 @@ async function handleShardedQuery(
       if (changes.changeTokenRatio > config.change_threshold) {
         info(`shard "${state.entry.id}": change ratio ${changes.changeTokenRatio.toFixed(4)} exceeds threshold, rebuilding`);
         state.needRebuild = true;
-        clearCacheUnits();
+        clearCacheUnits(state.entry.id);
         const cacheKey = generateCacheKey();
         state.firstTurnText = buildFirstTurnSharded(cacheKey);
         state.baseContext = buildShardBaseContext(workspaceRoot, snapshot, state.entry.files);

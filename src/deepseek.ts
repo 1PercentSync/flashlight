@@ -54,7 +54,7 @@ const SEARCH_TOOL: OpenAI.ChatCompletionTool = {
 
 let client: OpenAI;
 let config: FlashlightConfig;
-let cacheUnits: CacheUnit[] = [];
+const cacheUnitsByLabel = new Map<string, CacheUnit[]>();
 
 export function initDeepSeek(cfg: FlashlightConfig): void {
   config = cfg;
@@ -64,7 +64,7 @@ export function initDeepSeek(cfg: FlashlightConfig): void {
   });
 }
 
-export async function probeCache(firstTurnText: string): Promise<{
+export async function probeCache(firstTurnText: string, label = "__default__"): Promise<{
   alive: boolean;
   hitTokens: number;
 }> {
@@ -85,7 +85,7 @@ export async function probeCache(firstTurnText: string): Promise<{
   // @ts-expect-error DeepSeek-specific
   const hitTokens: number = usage.prompt_cache_hit_tokens ?? 0;
 
-  const predicted = predictCacheHit(usage.prompt_tokens);
+  const predicted = predictCacheHit(label, usage.prompt_tokens);
   logCacheResult({
     type: "probe",
     totalTokens: usage.prompt_tokens,
@@ -93,13 +93,14 @@ export async function probeCache(firstTurnText: string): Promise<{
     actualHit: hitTokens,
   });
 
-  recordCacheUnit(usage.prompt_tokens);
+  recordCacheUnit(label, usage.prompt_tokens);
 
   return { alive: hitTokens > 0, hitTokens };
 }
 
 export async function sendQuery(
   messages: { role: "user"; content: string }[],
+  label = "__default__",
 ): Promise<QueryResponse> {
   const stream = await client.chat.completions.create({
     model: config.model,
@@ -135,7 +136,7 @@ export async function sendQuery(
   }
 
   const hitTokens: number = usage.prompt_cache_hit_tokens ?? 0;
-  const predicted = predictCacheHit(usage.prompt_tokens);
+  const predicted = predictCacheHit(label, usage.prompt_tokens);
   logCacheResult({
     type: "query",
     totalTokens: usage.prompt_tokens,
@@ -143,7 +144,7 @@ export async function sendQuery(
     actualHit: hitTokens,
   });
 
-  recordCacheUnit(usage.prompt_tokens);
+  recordCacheUnit(label, usage.prompt_tokens);
 
   let results: SearchResult[];
   if (!toolArgs) {
@@ -218,14 +219,14 @@ export async function sendActivation(
     const usage = resp.usage!;
     // @ts-expect-error DeepSeek-specific
     const hitTokens: number = usage.prompt_cache_hit_tokens ?? 0;
-    const predicted = predictCacheHit(usage.prompt_tokens);
+    const predicted = predictCacheHit(label, usage.prompt_tokens);
     logCacheResult({
       type: "activation",
       totalTokens: usage.prompt_tokens,
       predictedHit: predicted,
       actualHit: hitTokens,
     });
-    recordCacheUnit(usage.prompt_tokens);
+    recordCacheUnit(label, usage.prompt_tokens);
     info(`${label} activation completed`);
   } catch (err) {
     error(`${label} activation failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -244,7 +245,7 @@ export async function sendParallelQueries(
 ): Promise<{ shardId: string; response: QueryResponse }[]> {
   const results = await Promise.allSettled(
     querySets.map(async ({ shardId, messages }) => {
-      const response = await sendQuery(messages);
+      const response = await sendQuery(messages, shardId);
       return { shardId, response };
     }),
   );
@@ -265,13 +266,19 @@ export async function sendParallelQueries(
   return successful;
 }
 
-export function clearCacheUnits(): void {
-  cacheUnits = [];
+export function clearCacheUnits(label?: string): void {
+  if (label) {
+    cacheUnitsByLabel.delete(label);
+  } else {
+    cacheUnitsByLabel.clear();
+  }
 }
 
-function predictCacheHit(totalPromptTokens: number): number {
+function predictCacheHit(label: string, totalPromptTokens: number): number {
+  const units = cacheUnitsByLabel.get(label);
+  if (!units) return 0;
   let bestMatch = 0;
-  for (const unit of cacheUnits) {
+  for (const unit of units) {
     if (unit.position <= totalPromptTokens && unit.position > bestMatch) {
       bestMatch = unit.position;
     }
@@ -279,11 +286,14 @@ function predictCacheHit(totalPromptTokens: number): number {
   return bestMatch;
 }
 
-function recordCacheUnit(totalPromptTokens: number): void {
+function recordCacheUnit(label: string, totalPromptTokens: number): void {
   const position = Math.floor(totalPromptTokens / 128) * 128;
   if (position === 0) return;
-  const exists = cacheUnits.some((u) => u.position === position);
-  if (!exists) {
-    cacheUnits.push({ position, timestamp: Date.now() });
+  if (!cacheUnitsByLabel.has(label)) {
+    cacheUnitsByLabel.set(label, []);
+  }
+  const units = cacheUnitsByLabel.get(label)!;
+  if (!units.some((u) => u.position === position)) {
+    units.push({ position, timestamp: Date.now() });
   }
 }
