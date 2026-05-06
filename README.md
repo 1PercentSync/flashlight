@@ -106,12 +106,12 @@ cd keeper && docker compose up -d
 
 Then set `FLASHLIGHT_KEEPER_URL=http://localhost:3100` in your MCP config.
 
-The keeper periodically probes and re-activates cached contexts (default every 6h, max 48h lifetime). If a cache dies unexpectedly, the global interval tightens to 3h to protect remaining workspaces.
+The keeper periodically probes and re-activates cached contexts (default every 12h, max 48h lifetime). If a cache dies unexpectedly, the global interval tightens to 3h to protect remaining workspaces.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `3100` | HTTP server port |
-| `DEFAULT_INTERVAL_MS` | `21600000` (6h) | Keepalive interval |
+| `DEFAULT_INTERVAL_MS` | `43200000` (12h) | Keepalive interval |
 | `DEGRADED_INTERVAL_MS` | `10800000` (3h) | Interval after unexpected cache death |
 | `MAX_LIFETIME_MS` | `172800000` (48h) | Max task lifetime |
 | `ENABLE_REFRESH` | `false` | Enable /refresh endpoint (testing only) |

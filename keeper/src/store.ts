@@ -10,7 +10,7 @@ export interface KeepaliveTask {
   lastKeepaliveAt: number;
 }
 
-const DEFAULT_INTERVAL_MS = parseInt(process.env.DEFAULT_INTERVAL_MS ?? "21600000", 10);
+const DEFAULT_INTERVAL_MS = parseInt(process.env.DEFAULT_INTERVAL_MS ?? "43200000", 10);
 const DEGRADED_INTERVAL_MS = parseInt(process.env.DEGRADED_INTERVAL_MS ?? "10800000", 10);
 const MAX_LIFETIME_MS = parseInt(process.env.MAX_LIFETIME_MS ?? "172800000", 10);
 
