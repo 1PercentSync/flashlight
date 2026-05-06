@@ -25,8 +25,10 @@ function sentinelId(model: string): string {
   return model;
 }
 
+const PADDING = "x".repeat(512);
+
 function buildSentinelText(cacheKey: string): string {
-  return `${cacheKey},sentinel cache probe token`;
+  return `${cacheKey}\n${PADDING}\nThis is a sentinel cache probe token used to measure DeepSeek prefix cache TTL. The padding above ensures total prompt tokens exceed 128.`;
 }
 
 export function getApiKeyForSentinel(taskApiKeys: string[]): string {
