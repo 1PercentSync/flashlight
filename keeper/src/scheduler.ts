@@ -7,10 +7,11 @@ import { log, warn } from "./log.js";
 const TICK_INTERVAL_MS = 60_000;
 
 let unexpectedDeaths = 0;
+let tickCount = 0;
 
 export function startScheduler(): void {
   scheduleNext();
-  log("scheduler started");
+  log("scheduler started, tick interval=60s");
 }
 
 function scheduleNext(): void {
@@ -21,10 +22,13 @@ function scheduleNext(): void {
 }
 
 async function tick(): Promise<void> {
+  tickCount++;
+  const tickStart = Date.now();
+  const tasks = getAll();
+
   try {
-    // Collect active (model → apiKeys) from tasks
     const activeModels = new Map<string, string[]>();
-    for (const task of getAll()) {
+    for (const task of tasks) {
       if (!activeModels.has(task.model)) activeModels.set(task.model, []);
       const keys = activeModels.get(task.model)!;
       if (!keys.includes(task.apiKey)) keys.push(task.apiKey);
@@ -36,21 +40,33 @@ async function tick(): Promise<void> {
     warn(`sentinel error: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  for (const task of getExpired()) {
-    log(`task expired (48h): workspace=${task.workspaceId} shard=${task.shardId}`);
+  const expired = getExpired();
+  for (const task of expired) {
+    log(`task expired (48h): workspace=${task.workspaceId} shard=${task.shardId} age=${((Date.now() - task.registeredAt) / 3600000).toFixed(1)}h`);
     remove(task.id);
   }
 
   const now = Date.now();
+  let activatedCount = 0;
   for (const task of getAll()) {
     const intervalMs = getActivationIntervalMs(task.model);
     if (now - task.lastKeepaliveAt >= intervalMs) {
       await processTask(task);
+      activatedCount++;
     }
+  }
+
+  const elapsed = Date.now() - tickStart;
+  if (activatedCount > 0 || expired.length > 0 || tickCount % 60 === 0) {
+    log(`tick #${tickCount}: ${tasks.length} tasks, ${activatedCount} activated, ${expired.length} expired, ${elapsed}ms`);
   }
 }
 
 async function processTask(task: KeepaliveTask): Promise<void> {
+  const intervalMs = getActivationIntervalMs(task.model);
+  const overdue = Date.now() - task.lastKeepaliveAt - intervalMs;
+  log(`task due: workspace=${task.workspaceId} shard=${task.shardId} model=${task.model} overdue=${(overdue / 60000).toFixed(0)}min interval=${(intervalMs / 60000).toFixed(0)}min`);
+
   try {
     const firstTurnText = task.messages[0]?.content;
     if (!firstTurnText) {
@@ -59,22 +75,26 @@ async function processTask(task: KeepaliveTask): Promise<void> {
       return;
     }
 
+    const probeStart = Date.now();
     const probeResult = await probe(task.apiKey, task.model, firstTurnText);
+    const probeMs = Date.now() - probeStart;
 
     if (probeResult.alive) {
-      log(`probe alive: workspace=${task.workspaceId} shard=${task.shardId} hit=${probeResult.hitTokens}`);
+      log(`probe alive: workspace=${task.workspaceId} shard=${task.shardId} hit=${probeResult.hitTokens}/${probeResult.totalTokens} ${probeMs}ms`);
+      const actStart = Date.now();
       const actResult = await activate(task.apiKey, task.model, task.messages);
-      log(`activation sent: workspace=${task.workspaceId} shard=${task.shardId} hit=${actResult.hitTokens}/${actResult.totalTokens}`);
+      const actMs = Date.now() - actStart;
+      log(`activation sent: workspace=${task.workspaceId} shard=${task.shardId} hit=${actResult.hitTokens}/${actResult.totalTokens} ${actMs}ms`);
       task.lastKeepaliveAt = Date.now();
     } else {
       const timeSince = Date.now() - task.lastKeepaliveAt;
-      warn(`UNEXPECTED DEATH: workspace=${task.workspaceId} shard=${task.shardId} timeSinceLastAlive=${timeSince}ms, task removed`);
+      warn(`UNEXPECTED DEATH: workspace=${task.workspaceId} shard=${task.shardId} model=${task.model} timeSinceLastAlive=${(timeSince / 60000).toFixed(0)}min probeTokens=${probeResult.totalTokens} ${probeMs}ms, task removed`);
       remove(task.id);
       unexpectedDeaths++;
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    warn(`task ${task.id} failed: ${msg}`);
+    warn(`task ${task.id} activation failed: ${msg}`);
   }
 }
 

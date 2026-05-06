@@ -38,24 +38,23 @@ export function getApiKeyForSentinel(taskApiKeys: string[]): string {
 }
 
 export async function reconcileSentinels(activeModels: Map<string, string[]>): Promise<void> {
-  // activeModels: model → [apiKeys from active tasks]
-
-  // Remove sentinels for models with no active tasks
   for (const [id] of sentinels) {
     if (!activeModels.has(id)) {
       sentinels.delete(id);
-      log(`sentinel removed (no active tasks): ${id}`);
+      log(`sentinel removed (no active tasks): model=${id}`);
     }
   }
 
-  // Create sentinels for models that need one
   for (const [model, apiKeys] of activeModels) {
     const id = sentinelId(model);
     const existing = sentinels.get(id);
-    if (existing && !existing.probed) continue; // active sentinel exists, not yet probed
+    if (existing && !existing.probed) continue;
 
     const apiKey = getApiKeyForSentinel(apiKeys);
-    if (!apiKey) continue;
+    if (!apiKey) {
+      warn(`sentinel skip: model=${model}, no apiKey available`);
+      continue;
+    }
 
     await createSentinel(apiKey, model);
   }
@@ -68,7 +67,7 @@ export async function checkDueSentinels(): Promise<void> {
     try {
       await probeSentinel(id, sentinel);
     } catch (err) {
-      warn(`sentinel probe error (${id}): ${err instanceof Error ? err.message : String(err)}`);
+      warn(`sentinel probe error: model=${id} age=${((now - sentinel.createdAt) / 60000).toFixed(0)}min err=${err instanceof Error ? err.message : String(err)}`);
       sentinels.delete(id);
     }
   }
@@ -78,6 +77,10 @@ async function createSentinel(apiKey: string, model: string): Promise<void> {
   const id = sentinelId(model);
   const cacheKey = crypto.randomBytes(16).toString("hex");
   const text = buildSentinelText(cacheKey);
+  const keyLabel = SENTINEL_API_KEY ? "dedicated" : `...${apiKey.slice(-4)}`;
+
+  log(`sentinel creating: model=${model} key=${keyLabel}`);
+  const start = Date.now();
 
   try {
     await activate(apiKey, model, [
@@ -85,7 +88,7 @@ async function createSentinel(apiKey: string, model: string): Promise<void> {
       { role: "user", content: "当前是测试缓存是否依旧生效,直接回复OK" },
     ]);
   } catch (err) {
-    warn(`sentinel creation failed (${model}): ${err instanceof Error ? err.message : String(err)}`);
+    warn(`sentinel creation failed: model=${model} ${Date.now() - start}ms err=${err instanceof Error ? err.message : String(err)}`);
     return;
   }
 
@@ -102,23 +105,27 @@ async function createSentinel(apiKey: string, model: string): Promise<void> {
     probeAt: now + probeDelay,
     probed: false,
   });
-  log(`sentinel created: ${model}, probe in ${(probeDelay / 60000).toFixed(0)}min`);
+  log(`sentinel created: model=${model} estimatedTtl=${(estimatedTtl / 60000).toFixed(0)}min probeIn=${(probeDelay / 60000).toFixed(0)}min ${now - start}ms`);
 }
 
 async function probeSentinel(id: string, sentinel: Sentinel): Promise<void> {
   sentinel.probed = true;
   const text = buildSentinelText(sentinel.cacheKey);
-  const result = await probe(sentinel.apiKey, sentinel.model, text);
   const age = Date.now() - sentinel.createdAt;
+
+  log(`sentinel probing: model=${sentinel.model} age=${(age / 60000).toFixed(0)}min creationHour=${sentinel.creationHour}`);
+  const start = Date.now();
+  const result = await probe(sentinel.apiKey, sentinel.model, text);
+  const probeMs = Date.now() - start;
 
   if (result.alive) {
     const observedTtl = age * INCREASE_FACTOR;
     recordObservedTtl(sentinel.model, observedTtl);
-    log(`sentinel alive: ${sentinel.model} age=${(age / 60000).toFixed(0)}min → TTL up`);
+    log(`sentinel alive: model=${sentinel.model} age=${(age / 60000).toFixed(0)}min hit=${result.hitTokens}/${result.totalTokens} observedTtl=${(observedTtl / 60000).toFixed(0)}min ${probeMs}ms`);
   } else {
     const observedTtl = age * DECREASE_FACTOR;
     recordObservedTtl(sentinel.model, observedTtl);
-    warn(`sentinel dead: ${sentinel.model} age=${(age / 60000).toFixed(0)}min → TTL down`);
+    warn(`sentinel dead: model=${sentinel.model} age=${(age / 60000).toFixed(0)}min hit=${result.hitTokens}/${result.totalTokens} observedTtl=${(observedTtl / 60000).toFixed(0)}min ${probeMs}ms`);
   }
 
   sentinels.delete(id);

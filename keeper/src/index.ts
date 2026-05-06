@@ -45,7 +45,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && path === "/register") {
       const body = await parseBody(req);
       const created = register(body);
-      log(`task registered: workspace=${body.workspaceId} shard=${body.shardId}`);
+      log(`task ${created ? "created" : "updated"}: workspace=${body.workspaceId} shard=${body.shardId} model=${body.model} messages=${body.messages?.length ?? 0}`);
       json(res, created ? 201 : 200, { ok: true, created });
       return;
     }
@@ -58,28 +58,32 @@ const server = http.createServer(async (req, res) => {
 
       const body = await parseBody(req);
       const logs: string[] = [];
-      logs.push(`refresh start: workspace=${body.workspaceId} shard=${body.shardId}`);
+      const rl = (msg: string) => { logs.push(msg); log(`[refresh] ${msg}`); };
+
+      rl(`start: workspace=${body.workspaceId} shard=${body.shardId} model=${body.model} messages=${body.messages?.length ?? 0}`);
 
       const firstTurnText = body.messages[0]?.content;
       if (!firstTurnText) {
-        logs.push("error: no messages provided");
+        rl("error: no messages provided");
         json(res, 400, { logs });
         return;
       }
 
-      logs.push("probing cache...");
+      rl("probing cache...");
+      const probeStart = Date.now();
       const probeResult = await probe(body.apiKey, body.model, firstTurnText);
-      logs.push(`probe result: alive=${probeResult.alive} hitTokens=${probeResult.hitTokens} totalTokens=${probeResult.totalTokens}`);
+      rl(`probe: alive=${probeResult.alive} hit=${probeResult.hitTokens}/${probeResult.totalTokens} ${Date.now() - probeStart}ms`);
 
       if (probeResult.alive) {
-        logs.push("sending activation...");
+        rl("sending activation...");
+        const actStart = Date.now();
         const actResult = await activate(body.apiKey, body.model, body.messages);
-        logs.push(`activation done: hitTokens=${actResult.hitTokens} totalTokens=${actResult.totalTokens}`);
+        rl(`activation: hit=${actResult.hitTokens}/${actResult.totalTokens} ${Date.now() - actStart}ms`);
       } else {
-        logs.push("cache dead, skipping activation");
+        rl("cache dead, skipping activation");
       }
 
-      logs.push("refresh complete");
+      rl("complete");
       json(res, 200, { logs });
       return;
     }
