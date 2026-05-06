@@ -4,7 +4,7 @@ import { log } from "./log.js";
 
 const DATA_DIR = process.env.DATA_DIR ?? "/app/data";
 const TTL_FILE = path.join(DATA_DIR, "ttl_estimate.json");
-const INITIAL_ESTIMATE_MS = 43_200_000; // 12h
+const INITIAL_ESTIMATE_MS = parseInt(process.env.INITIAL_TTL_MS ?? "43200000", 10);
 const SAFETY_FACTOR = 0.8;
 const BUCKET_EMA_WEIGHT = 0.3;
 const GLOBAL_EMA_WEIGHT = 0.1;

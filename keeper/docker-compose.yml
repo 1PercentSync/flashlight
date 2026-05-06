@@ -11,5 +11,6 @@ services:
       - ENABLE_REFRESH=false
       # - SENTINEL_API_KEY=sk-...
       - SENTINEL_MODELS=deepseek-v4-flash
+      # - INITIAL_TTL_MS=43200000
     volumes:
       - ./data:/app/data
