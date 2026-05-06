@@ -11,13 +11,44 @@ export function extractResults(snapshot: Snapshot, results: SearchResult[]): str
   const valid = results.filter((r) => snapshot.has(r.file));
   if (valid.length === 0) return "No matching files found in snapshot.";
 
-  const fullFiles = tryFullFiles(snapshot, valid);
+  const merged = mergeOverlappingRanges(valid);
+
+  const fullFiles = tryFullFiles(snapshot, merged);
   if (fullFiles) return fullFiles;
 
-  const snippets = trySnippets(snapshot, valid);
+  const snippets = trySnippets(snapshot, merged);
   if (snippets) return snippets;
 
-  return formatIndex(valid);
+  return formatIndex(merged);
+}
+
+function mergeOverlappingRanges(results: SearchResult[]): SearchResult[] {
+  const byFile = new Map<string, { start: number; end: number }[]>();
+
+  for (const r of results) {
+    if (!byFile.has(r.file)) byFile.set(r.file, []);
+    byFile.get(r.file)!.push({ start: r.start_line, end: r.end_line });
+  }
+
+  const merged: SearchResult[] = [];
+
+  for (const [file, ranges] of byFile) {
+    ranges.sort((a, b) => a.start - b.start);
+
+    let current = ranges[0];
+    for (let i = 1; i < ranges.length; i++) {
+      const next = ranges[i];
+      if (next.start <= current.end + 3) {
+        current = { start: current.start, end: Math.max(current.end, next.end) };
+      } else {
+        merged.push({ file, start_line: current.start, end_line: current.end });
+        current = next;
+      }
+    }
+    merged.push({ file, start_line: current.start, end_line: current.end });
+  }
+
+  return merged;
 }
 
 function tryFullFiles(snapshot: Snapshot, results: SearchResult[]): string | null {
@@ -76,7 +107,7 @@ function formatIndex(results: SearchResult[]): string {
   const lines = results.map(
     (r) => `${r.file}:${r.start_line}-${r.end_line}`,
   );
-  return lines.join("\n");
+  return "Results exceed size limit. File locations:\n\n" + lines.join("\n");
 }
 
 function formatRanges(lineNumbers: number[]): string {

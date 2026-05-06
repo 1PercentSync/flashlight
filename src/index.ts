@@ -34,7 +34,7 @@ let workspaceRoot: string;
 server.registerTool(
   "search",
   {
-    description: "Search code in the workspace using DeepSeek's 1M context window",
+    description: "Search code in the workspace using DeepSeek's 1M context window. Returns full code snippets with line numbers when results fit within token budget, otherwise returns an index of file paths and line ranges (e.g. 'src/foo.cpp:42-68'). When you receive an index-only response, you MUST use the Read tool to read the specific file and line ranges to see the actual code.",
     inputSchema: z.object({
       query: z.string().describe("Natural language description of the code to find"),
       scope: z.string().optional().describe("Relative directory path to narrow search scope"),
