@@ -17,7 +17,7 @@ import {
 } from "./context.js";
 import { initDeepSeek, probeCache, sendQuery, fireActivation } from "./deepseek.js";
 import { extractResults } from "./extractor.js";
-import { info, error } from "./logger.js";
+import { initLogger, info, error } from "./logger.js";
 
 const server = new McpServer({ name: "flashlight", version: "0.1.0" });
 let config: FlashlightConfig;
@@ -165,6 +165,7 @@ async function main() {
       : undefined,
   });
 
+  initLogger(workspaceRoot);
   initTokenizer();
   initDeepSeek(config);
 
