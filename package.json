@@ -1,11 +1,27 @@
 {
-  "name": "flashlight",
+  "name": "@1percentsync/flashlight",
   "version": "0.1.0",
+  "description": "MCP Server that uses DeepSeek's 1M context window for whole-codebase code search",
   "type": "module",
+  "bin": {
+    "flashlight": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "deepseek_v3_tokenizer/tokenizer.json",
+    "deepseek_v3_tokenizer/tokenizer_config.json"
+  ],
   "scripts": {
     "build": "tsc",
+    "prepublishOnly": "npm run build",
     "start": "node dist/index.js"
   },
+  "keywords": [
+    "mcp",
+    "deepseek",
+    "code-search",
+    "context-engine"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/1PercentSync/flashlight.git"

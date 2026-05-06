@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { McpServer, StdioServerTransport } from "@modelcontextprotocol/server";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
