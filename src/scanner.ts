@@ -14,8 +14,7 @@ export interface FileEntry {
 export type Snapshot = Map<string, FileEntry>;
 
 export function createSnapshot(workspaceRoot: string, config: FlashlightConfig): Snapshot {
-  const ig = loadGitignore(workspaceRoot);
-  const files = scanFiles(workspaceRoot, workspaceRoot, ig, config.ext_whitelist);
+  const files = scanFiles(workspaceRoot, config.ext_whitelist);
   const snapshot: Snapshot = new Map();
   for (const relativePath of files) {
     const fullPath = path.join(workspaceRoot, relativePath);
@@ -64,19 +63,40 @@ export function sortByGitTime(workspaceRoot: string, files: string[]): string[] 
   return [...files].sort((a, b) => (times.get(a) ?? 0) - (times.get(b) ?? 0));
 }
 
-function loadGitignore(workspaceRoot: string): Ignore {
+function scanFiles(
+  workspaceRoot: string,
+  extWhitelist: string[],
+): string[] {
+  const hasGit = fs.existsSync(path.join(workspaceRoot, ".git"));
+
+  if (hasGit) {
+    try {
+      const stdout = execSync(
+        "git ls-files --cached --others --exclude-standard",
+        { cwd: workspaceRoot, encoding: "utf-8", timeout: 30000, maxBuffer: 50 * 1024 * 1024 },
+      );
+      return stdout.split("\n")
+        .map((f) => f.trim())
+        .filter((f) => {
+          if (!f) return false;
+          if (f.startsWith(".flashlight/")) return false;
+          const ext = path.extname(f).toLowerCase();
+          return extWhitelist.includes(ext);
+        });
+    } catch {}
+  }
+
   const ig = ignore();
   ig.add(".git");
   ig.add(".flashlight");
-
   const gitignorePath = path.join(workspaceRoot, ".gitignore");
   if (fs.existsSync(gitignorePath)) {
     ig.add(fs.readFileSync(gitignorePath, "utf-8"));
   }
-  return ig;
+  return scanDir(workspaceRoot, workspaceRoot, ig, extWhitelist);
 }
 
-function scanFiles(
+function scanDir(
   root: string,
   dir: string,
   ig: Ignore,
@@ -94,7 +114,7 @@ function scanFiles(
     }
 
     if (entry.isDirectory()) {
-      results.push(...scanFiles(root, fullPath, ig, extWhitelist));
+      results.push(...scanDir(root, fullPath, ig, extWhitelist));
     } else if (entry.isFile()) {
       const ext = path.extname(entry.name).toLowerCase();
       if (extWhitelist.includes(ext)) {
