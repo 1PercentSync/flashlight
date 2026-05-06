@@ -8,6 +8,8 @@ const INCREASE_FACTOR = 1.05;
 const DECREASE_FACTOR = 0.8;
 
 const SENTINEL_API_KEY = process.env.SENTINEL_API_KEY ?? "";
+const SENTINEL_MODELS_RAW = process.env.SENTINEL_MODELS ?? "deepseek-v4-flash";
+const SENTINEL_MODELS = SENTINEL_MODELS_RAW.split(",").map((s) => s.trim()).filter(Boolean);
 
 interface Sentinel {
   apiKey: string;
@@ -37,20 +39,20 @@ export function getApiKeyForSentinel(taskApiKeys: string[]): string {
   return taskApiKeys[Math.floor(Math.random() * taskApiKeys.length)];
 }
 
-export async function reconcileSentinels(activeModels: Map<string, string[]>): Promise<void> {
+export async function reconcileSentinels(taskApiKeys: string[]): Promise<void> {
   for (const [id] of sentinels) {
-    if (!activeModels.has(id)) {
+    if (!SENTINEL_MODELS.includes(id)) {
       sentinels.delete(id);
-      log(`sentinel removed (no active tasks): model=${id}`);
+      log(`sentinel removed (not in SENTINEL_MODELS): model=${id}`);
     }
   }
 
-  for (const [model, apiKeys] of activeModels) {
+  for (const model of SENTINEL_MODELS) {
     const id = sentinelId(model);
     const existing = sentinels.get(id);
     if (existing && !existing.probed) continue;
 
-    const apiKey = getApiKeyForSentinel(apiKeys);
+    const apiKey = getApiKeyForSentinel(taskApiKeys);
     if (!apiKey) {
       warn(`sentinel skip: model=${model}, no apiKey available`);
       continue;

@@ -27,14 +27,8 @@ async function tick(): Promise<void> {
   const tasks = getAll();
 
   try {
-    const activeModels = new Map<string, string[]>();
-    for (const task of tasks) {
-      if (!activeModels.has(task.model)) activeModels.set(task.model, []);
-      const keys = activeModels.get(task.model)!;
-      if (!keys.includes(task.apiKey)) keys.push(task.apiKey);
-    }
-
-    await reconcileSentinels(activeModels);
+    const apiKeys = [...new Set(tasks.map((t) => t.apiKey))];
+    await reconcileSentinels(apiKeys);
     await checkDueSentinels();
   } catch (err) {
     warn(`sentinel error: ${err instanceof Error ? err.message : String(err)}`);
