@@ -28,7 +28,30 @@ export function createSnapshot(workspaceRoot: string, config: FlashlightConfig):
   return snapshot;
 }
 
+let gitTimeCache: { root: string; times: Map<string, number> } | null = null;
+
 export function sortByGitTime(workspaceRoot: string, files: string[]): string[] {
+  const times = getGitTimes(workspaceRoot);
+
+  for (const file of files) {
+    if (!times.has(file)) {
+      const fullPath = path.join(workspaceRoot, file);
+      try {
+        times.set(file, Math.floor(fs.statSync(fullPath).mtimeMs / 1000));
+      } catch {
+        times.set(file, 0);
+      }
+    }
+  }
+
+  return [...files].sort((a, b) => (times.get(a) ?? 0) - (times.get(b) ?? 0));
+}
+
+function getGitTimes(workspaceRoot: string): Map<string, number> {
+  if (gitTimeCache && gitTimeCache.root === workspaceRoot) {
+    return gitTimeCache.times;
+  }
+
   const times = new Map<string, number>();
   const hasGit = fs.existsSync(path.join(workspaceRoot, ".git"));
 
@@ -52,18 +75,8 @@ export function sortByGitTime(workspaceRoot: string, files: string[]): string[] 
     } catch {}
   }
 
-  for (const file of files) {
-    if (!times.has(file)) {
-      const fullPath = path.join(workspaceRoot, file);
-      try {
-        times.set(file, Math.floor(fs.statSync(fullPath).mtimeMs / 1000));
-      } catch {
-        times.set(file, 0);
-      }
-    }
-  }
-
-  return [...files].sort((a, b) => (times.get(a) ?? 0) - (times.get(b) ?? 0));
+  gitTimeCache = { root: workspaceRoot, times };
+  return times;
 }
 
 function scanFiles(

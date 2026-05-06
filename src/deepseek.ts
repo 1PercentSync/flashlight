@@ -147,8 +147,13 @@ export async function sendQuery(
 
   let results: SearchResult[];
   if (!toolArgs) {
-    warn("no tool call in response, returning empty results");
-    results = [];
+    if (content) {
+      info("no tool call, retrying with JSON output mode");
+      results = await retryWithJsonMode(messages, usage);
+    } else {
+      warn("no tool call and no content in response");
+      results = [];
+    }
   } else {
     try {
       const parsed = JSON.parse(toolArgs);
@@ -167,6 +172,35 @@ export async function sendQuery(
       prompt_cache_miss_tokens: usage.prompt_cache_miss_tokens ?? 0,
     },
   };
+}
+
+async function retryWithJsonMode(
+  messages: { role: "user"; content: string }[],
+  originalUsage: any,
+): Promise<SearchResult[]> {
+  try {
+    const retryMessages = [
+      ...messages,
+      { role: "user" as const, content: '请以JSON格式输出搜索结果，格式为 {"results": [{"file": "path", "start_line": 1, "end_line": 10}, ...]}。如果没有找到相关代码，输出 {"results": []}' },
+    ];
+
+    const resp = await client.chat.completions.create({
+      model: config.model,
+      messages: retryMessages,
+      response_format: { type: "json_object" },
+      // @ts-expect-error DeepSeek-specific
+      thinking: { type: "disabled" },
+    });
+
+    const text = resp.choices[0]?.message?.content ?? "";
+    const parsed = JSON.parse(text);
+    const results: SearchResult[] = Array.isArray(parsed.results) ? parsed.results : [];
+    info(`JSON retry: got ${results.length} results`);
+    return results;
+  } catch (err) {
+    warn(`JSON retry failed: ${err instanceof Error ? err.message : String(err)}`);
+    return [];
+  }
 }
 
 export async function sendActivation(

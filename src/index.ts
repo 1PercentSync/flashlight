@@ -267,7 +267,8 @@ async function handleShardedQuery(
     } else if (state.base) {
       state.firstTurnText = state.base.first_turn_text;
 
-      const changes = detectChanges(snapshot, state.base);
+      const shardSnapshot = filterSnapshot(snapshot, state.entry.files);
+      const changes = detectChanges(shardSnapshot, state.base);
       if (changes.changeTokenRatio > config.change_threshold) {
         info(`shard "${state.entry.id}": change ratio ${changes.changeTokenRatio.toFixed(4)} exceeds threshold, rebuilding`);
         state.needRebuild = true;
@@ -277,7 +278,7 @@ async function handleShardedQuery(
         state.baseContext = buildShardBaseContext(workspaceRoot, snapshot, state.entry.files);
       } else {
         state.baseContext = state.base.base_request_text;
-        state.changeContext = buildChangeContext(snapshot, changes);
+        state.changeContext = buildChangeContext(shardSnapshot, changes);
         if (state.changeContext) {
           info(`shard "${state.entry.id}": incremental, ${state.changeContext.length} chars change`);
         }
@@ -369,6 +370,15 @@ async function handleShardedQuery(
   const output = extractResults(snapshot, mergedResults);
   info(`--- query end: returned ${output.length} chars ---`);
   return { content: [{ type: "text", text: output }] };
+}
+
+function filterSnapshot(snapshot: Snapshot, files: string[]): Snapshot {
+  const filtered: Snapshot = new Map();
+  for (const f of files) {
+    const entry = snapshot.get(f);
+    if (entry) filtered.set(f, entry);
+  }
+  return filtered;
 }
 
 function mergeShardResults(resultSets: SearchResult[][]): SearchResult[] {
