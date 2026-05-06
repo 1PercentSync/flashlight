@@ -7,7 +7,10 @@ services:
     ports:
       - "127.0.0.1:3100:3100"
     environment:
-      - DEFAULT_INTERVAL_MS=43200000
-      - DEGRADED_INTERVAL_MS=10800000
       - MAX_LIFETIME_MS=172800000
       - ENABLE_REFRESH=false
+    volumes:
+      - keeper-data:/app/data
+
+volumes:
+  keeper-data:

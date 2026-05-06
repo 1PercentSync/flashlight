@@ -1,22 +1,37 @@
-import { getDue, getExpired, remove, degradeInterval, type KeepaliveTask } from "./store.js";
+import { getAll, getExpired, remove, type KeepaliveTask } from "./store.js";
 import { probe, activate } from "./probe.js";
+import { probeAllSentinels } from "./sentinel.js";
+import { getActivationIntervalMs } from "./ttl.js";
 import { log, warn } from "./log.js";
 
-const CHECK_INTERVAL_MS = 60_000;
+const SENTINEL_PROBE_INTERVAL_MS = 30 * 60_000; // 30 min
+const TASK_CHECK_INTERVAL_MS = 60_000; // 1 min
+
+let unexpectedDeaths = 0;
 
 export function startScheduler(): void {
-  setInterval(tick, CHECK_INTERVAL_MS);
+  setInterval(sentinelTick, SENTINEL_PROBE_INTERVAL_MS);
+  setInterval(taskTick, TASK_CHECK_INTERVAL_MS);
   log("scheduler started");
 }
 
-async function tick(): Promise<void> {
+async function sentinelTick(): Promise<void> {
+  try {
+    await probeAllSentinels();
+  } catch (err) {
+    warn(`sentinel tick error: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+async function taskTick(): Promise<void> {
   for (const task of getExpired()) {
     log(`task expired (48h): workspace=${task.workspaceId} shard=${task.shardId}`);
     remove(task.id);
   }
 
-  const due = getDue();
-  if (due.length === 0) return;
+  const intervalMs = getActivationIntervalMs();
+  const now = Date.now();
+  const due = getAll().filter((t) => now - t.lastKeepaliveAt >= intervalMs);
 
   for (const task of due) {
     await processTask(task);
@@ -35,18 +50,22 @@ async function processTask(task: KeepaliveTask): Promise<void> {
     const probeResult = await probe(task.apiKey, task.model, firstTurnText);
 
     if (probeResult.alive) {
-      log(`probe alive: workspace=${task.workspaceId} shard=${task.shardId} hitTokens=${probeResult.hitTokens}`);
+      log(`probe alive: workspace=${task.workspaceId} shard=${task.shardId} hit=${probeResult.hitTokens}`);
       const actResult = await activate(task.apiKey, task.model, task.messages);
       log(`activation sent: workspace=${task.workspaceId} shard=${task.shardId} hit=${actResult.hitTokens}/${actResult.totalTokens}`);
       task.lastKeepaliveAt = Date.now();
     } else {
-      const timeSinceLastAlive = Date.now() - task.lastKeepaliveAt;
-      warn(`UNEXPECTED DEATH: workspace=${task.workspaceId} shard=${task.shardId} timeSinceLastAlive=${timeSinceLastAlive}ms, task removed, global interval → 3h`);
+      const timeSince = Date.now() - task.lastKeepaliveAt;
+      warn(`UNEXPECTED DEATH: workspace=${task.workspaceId} shard=${task.shardId} timeSinceLastAlive=${timeSince}ms, task removed`);
       remove(task.id);
-      degradeInterval();
+      unexpectedDeaths++;
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     warn(`task ${task.id} failed: ${msg}`);
   }
+}
+
+export function getUnexpectedDeaths(): number {
+  return unexpectedDeaths;
 }

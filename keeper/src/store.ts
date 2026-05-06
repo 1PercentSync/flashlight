@@ -10,13 +10,9 @@ export interface KeepaliveTask {
   lastKeepaliveAt: number;
 }
 
-const DEFAULT_INTERVAL_MS = parseInt(process.env.DEFAULT_INTERVAL_MS ?? "43200000", 10);
-const DEGRADED_INTERVAL_MS = parseInt(process.env.DEGRADED_INTERVAL_MS ?? "10800000", 10);
 const MAX_LIFETIME_MS = parseInt(process.env.MAX_LIFETIME_MS ?? "172800000", 10);
 
 const tasks = new Map<string, KeepaliveTask>();
-let globalIntervalMs = DEFAULT_INTERVAL_MS;
-let unexpectedDeaths = 0;
 
 export function register(input: Omit<KeepaliveTask, "id" | "registeredAt" | "lastQueryAt" | "lastKeepaliveAt">): boolean {
   const id = `${input.workspaceId}:${input.shardId}`;
@@ -49,29 +45,9 @@ export function getAll(): KeepaliveTask[] {
   return [...tasks.values()];
 }
 
-export function getDue(): KeepaliveTask[] {
-  const now = Date.now();
-  return [...tasks.values()].filter(
-    (t) => now >= t.lastKeepaliveAt + globalIntervalMs,
-  );
-}
-
 export function getExpired(): KeepaliveTask[] {
   const now = Date.now();
   return [...tasks.values()].filter(
     (t) => now - t.registeredAt > MAX_LIFETIME_MS,
   );
-}
-
-export function degradeInterval(): void {
-  globalIntervalMs = DEGRADED_INTERVAL_MS;
-  unexpectedDeaths++;
-}
-
-export function getGlobalIntervalMs(): number {
-  return globalIntervalMs;
-}
-
-export function getUnexpectedDeaths(): number {
-  return unexpectedDeaths;
 }

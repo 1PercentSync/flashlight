@@ -1,7 +1,9 @@
 import http from "node:http";
-import { register, remove, getAll, getGlobalIntervalMs, getUnexpectedDeaths } from "./store.js";
+import { register, remove, getAll } from "./store.js";
 import { probe, activate } from "./probe.js";
-import { startScheduler } from "./scheduler.js";
+import { startScheduler, getUnexpectedDeaths } from "./scheduler.js";
+import { ensureSentinel, getSentinelStatus } from "./sentinel.js";
+import { loadTtlEstimate, getTtlState } from "./ttl.js";
 import { log, warn } from "./log.js";
 
 const PORT = parseInt(process.env.PORT ?? "3100", 10);
@@ -44,6 +46,7 @@ const server = http.createServer(async (req, res) => {
       const body = await parseBody(req);
       const created = register(body);
       log(`task registered: workspace=${body.workspaceId} shard=${body.shardId}`);
+      ensureSentinel(body.apiKey, body.model).catch(() => {});
       json(res, created ? 201 : 200, { ok: true, created });
       return;
     }
@@ -96,9 +99,10 @@ const server = http.createServer(async (req, res) => {
 
       json(res, 200, {
         tasks,
-        globalIntervalMs: getGlobalIntervalMs(),
-        unexpectedDeaths: getUnexpectedDeaths(),
         totalTasks: tasks.length,
+        ttlEstimate: getTtlState(),
+        sentinels: getSentinelStatus(),
+        unexpectedDeaths: getUnexpectedDeaths(),
         memoryUsageMB: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
       });
       return;
@@ -131,6 +135,8 @@ const server = http.createServer(async (req, res) => {
     json(res, 500, { error: msg });
   }
 });
+
+loadTtlEstimate();
 
 server.listen(PORT, "0.0.0.0", () => {
   log(`keeper listening on 0.0.0.0:${PORT}`);
