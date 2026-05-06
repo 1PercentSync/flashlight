@@ -24,7 +24,9 @@ DeepSeek V4 系列提供 1M 上下文、极低的缓存命中价格（flash: 0.0
 | `ext_whitelist` | 否 | 常见源代码后缀 | 文件类型白名单 |
 | `model` | 否 | `deepseek-v4-flash` | DS 模型选择，可选 `deepseek-v4-pro` |
 | `reasoning_effort` | 否 | `high` | 思考强度，可选 `high`、`max` |
-| `change_threshold` | 否 | TBD | 变更区 token 占 Base token 比例阈值，超过则触发 Base 重建 |
+| `change_threshold` | 否 | `0.1` | 变更区 token 占 Base token 比例阈值，超过则触发 Base 重建 |
+| `max_context_tokens` | 否 | `900000` | 单分片最大 token 数，超过触发自动分片 |
+| `keeper_url` | 否 | — | Keeper 服务 URL，设置后每次查询自动注册保活任务 |
 
 ---
 
@@ -164,11 +166,10 @@ Changes 激活大部分 tokens 命中 Base 激活的缓存，实际 miss 仅为 
 1. 探测到 Base 缓存已失效
 2. 变更区 token 占 Base token 比例超过配置阈值
 
-### 5.5 不做的事情
+### 5.5 已实现的扩展功能
 
-- 不做缓存保活
-- 不做 TTL 探测和动态调整
-- 不做子目录缓存
+- **分片（sharding）**：项目超过 `max_context_tokens` 时按目录自动拆分，并行查询，合并结果。详见 `shard.ts`
+- **缓存保活（keeper）**：独立 Docker 服务定期激活缓存，防止过期。使用自适应 TTL 学习（sentinel 探测 + 24 小时桶 + per-model 隔离）。详见 `keeper/`
 - 激活请求不做重试（失败后自愈）
 
 ---
@@ -327,8 +328,20 @@ flashlight/
 │   ├── extractor.ts         # 结果提取，三档返回策略
 │   ├── tokenizer.ts         # DS 官方 tokenizer 的纯 TS 移植
 │   ├── lock.ts              # .flashlight/ 文件锁
+│   ├── shard.ts             # 分片算法（大项目自动拆分）
 │   ├── config.ts            # 配置项定义与加载
 │   └── logger.ts            # 日志输出（含缓存预测对比）
+├── keeper/                   # 缓存保活 Docker 服务
+│   ├── src/
+│   │   ├── index.ts         # HTTP 服务入口
+│   │   ├── store.ts         # 内存任务存储
+│   │   ├── scheduler.ts     # 后台调度（sentinel + 任务激活）
+│   │   ├── sentinel.ts      # 一次性测试缓存，学习 TTL
+│   │   ├── ttl.ts           # 自适应 TTL 估计器（24 小时桶 × per-model）
+│   │   ├── probe.ts         # DeepSeek probe/activate 调用
+│   │   └── log.ts           # 日志
+│   ├── Dockerfile
+│   └── docker-compose.yml
 ```
 
 ---

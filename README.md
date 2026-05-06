@@ -106,15 +106,24 @@ cd keeper && docker compose up -d
 
 Then set `FLASHLIGHT_KEEPER_URL=http://localhost:3100` in your MCP config.
 
-The keeper periodically probes and re-activates cached contexts (default every 12h, max 48h lifetime). If a cache dies unexpectedly, the global interval tightens to 3h to protect remaining workspaces.
+### How it works
+
+The keeper **learns** the actual DeepSeek cache TTL through observation, then schedules activations just in time.
+
+1. **Sentinel**: per model, creates a tiny throwaway cache, waits ~95% of estimated TTL, probes once. If alive → TTL estimate up. If dead → TTL estimate down. Cost: ~¥0.002/day.
+2. **Adaptive timing**: 24 hourly buckets (UTC) per model, each with its own TTL estimate. Peak hours may have shorter TTL; off-peak may have longer. The keeper adapts automatically.
+3. **Task activation**: when a task's time since last activation reaches `estimated_TTL × 80%`, keeper probes and re-activates it. If the cache is already dead (shouldn't happen if sentinel timing is correct), the task is removed.
+4. **TTL persistence**: learned estimates are saved to disk (`/app/data/ttl_estimate.json`) and survive container restarts.
+
+### Keeper environment variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `3100` | HTTP server port |
-| `DEFAULT_INTERVAL_MS` | `43200000` (12h) | Keepalive interval |
-| `DEGRADED_INTERVAL_MS` | `10800000` (3h) | Interval after unexpected cache death |
 | `MAX_LIFETIME_MS` | `172800000` (48h) | Max task lifetime |
 | `ENABLE_REFRESH` | `false` | Enable /refresh endpoint (testing only) |
+| `SENTINEL_API_KEY` | (none) | Dedicated API key for sentinel probes (uses task keys if unset) |
+| `DATA_DIR` | `/app/data` | Directory for TTL estimate persistence |
 
 ## Logs
 
