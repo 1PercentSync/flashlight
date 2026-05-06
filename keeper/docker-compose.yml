@@ -11,7 +11,4 @@ services:
       - ENABLE_REFRESH=false
       # - SENTINEL_API_KEY=sk-...
     volumes:
-      - keeper-data:/app/data
-
-volumes:
-  keeper-data:
+      - ./data:/app/data
