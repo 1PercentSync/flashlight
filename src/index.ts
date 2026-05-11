@@ -2,7 +2,7 @@
 import { McpServer, StdioServerTransport } from "@modelcontextprotocol/server";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
-import { loadConfig } from "./config.js";
+import { loadConfig, resolveExtWhitelist } from "./config.js";
 import type { FlashlightConfig } from "./config.js";
 import { initTokenizer } from "./tokenizer.js";
 import { withLock } from "./lock.js";
@@ -27,14 +27,32 @@ import { resolveShardPlan, type ShardPlan, type ShardEntry } from "./shard.js";
 import { initLogger, info, warn, error } from "./logger.js";
 import type { SearchResult } from "./deepseek.js";
 
-const server = new McpServer({ name: "flashlight", version: "0.6.3" });
+const server = new McpServer({ name: "flashlight", version: "0.6.6" });
 let config: FlashlightConfig;
 let workspaceRoot: string;
+
+const effectiveExtWhitelist = resolveExtWhitelist(process.cwd());
+
+function buildSearchDescription(whitelist: string[]): string {
+  const extList = whitelist.join(", ");
+  return [
+    "Search code in the workspace using DeepSeek's 1M context window. Returns full code snippets with line numbers for all matched locations.",
+    "",
+    `Indexed file extensions: ${extList}`,
+    "",
+    "To customize indexed extensions for this project, create or edit `.flashlight/config.json` in the workspace root:",
+    '  {"ext_whitelist": [".ext1", ".ext2"], "ext_whitelist_override": false}',
+    "- ext_whitelist: file extensions to include",
+    "- ext_whitelist_override: true = ONLY index listed extensions; false (default) = merge with global defaults above",
+    "",
+    "If the extensions listed above don't cover needed file types, instruct the user to edit `.flashlight/config.json` and restart the agent environment. Changes take effect only when the extension list shown above updates.",
+  ].join("\n");
+}
 
 server.registerTool(
   "search",
   {
-    description: "Search code in the workspace using DeepSeek's 1M context window. Returns full code snippets with line numbers for all matched locations.",
+    description: buildSearchDescription(effectiveExtWhitelist),
     inputSchema: z.object({
       query: z.string().describe("Natural language description of the code to find"),
       scope: z.string().optional().describe("Relative directory path to narrow search scope"),
@@ -421,7 +439,7 @@ async function ensureInitialized() {
     throw new Error("No workspace root available. MCP client must provide roots.");
   }
 
-  config = loadConfig();
+  config = loadConfig(workspaceRoot);
 
   initLogger(workspaceRoot);
   initTokenizer();

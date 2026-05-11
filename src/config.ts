@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+
 /** Flashlight runtime configuration. */
 export interface FlashlightConfig {
   /** DeepSeek API key for authentication. */
@@ -14,7 +17,7 @@ export interface FlashlightConfig {
   max_context_tokens: number;
 }
 
-const DEFAULT_EXT_WHITELIST = [
+export const DEFAULT_EXT_WHITELIST = [
   // Python
   ".py", ".pyi", ".pyx",
   // C / C++
@@ -90,10 +93,63 @@ const DEFAULT_EXT_WHITELIST = [
   ".html", ".htm", ".css", ".scss", ".less",
   // Config (hand-written, typically small)
   ".yaml", ".yml", ".toml",
+  // IPC / IPS
+  ".ipsc",
 ];
 
-/** Load and validate configuration from environment variables. */
-export function loadConfig(): FlashlightConfig {
+/** Project-level extension whitelist configuration from `.flashlight/config.json`. */
+export interface ProjectExtConfig {
+  ext_whitelist?: string[];
+  ext_whitelist_override?: boolean;
+}
+
+/** Read project-level extension config. Returns null if file is missing or invalid. */
+export function readProjectExtConfig(workspaceRoot: string): ProjectExtConfig | null {
+  const configPath = path.join(workspaceRoot, ".flashlight", "config.json");
+  if (!fs.existsSync(configPath)) return null;
+  try {
+    const raw = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    const result: ProjectExtConfig = {};
+
+    if (Array.isArray(raw.ext_whitelist)) {
+      const valid = raw.ext_whitelist.filter(
+        (e: unknown) => typeof e === "string" && e.startsWith("."),
+      );
+      if (valid.length > 0) result.ext_whitelist = valid;
+    }
+
+    if (typeof raw.ext_whitelist_override === "boolean") {
+      result.ext_whitelist_override = raw.ext_whitelist_override;
+    }
+
+    return result;
+  } catch {
+    return null;
+  }
+}
+
+/** Resolve the effective extension whitelist. Priority: project config > env var > default. */
+export function resolveExtWhitelist(workspaceRoot?: string): string[] {
+  let globalWhitelist = DEFAULT_EXT_WHITELIST;
+  if (process.env.FLASHLIGHT_EXT_WHITELIST) {
+    globalWhitelist = process.env.FLASHLIGHT_EXT_WHITELIST.split(",").map((s) => s.trim()).filter(Boolean);
+  }
+
+  if (workspaceRoot) {
+    const project = readProjectExtConfig(workspaceRoot);
+    if (project?.ext_whitelist) {
+      if (project.ext_whitelist_override) {
+        return project.ext_whitelist;
+      }
+      return [...new Set([...globalWhitelist, ...project.ext_whitelist])];
+    }
+  }
+
+  return globalWhitelist;
+}
+
+/** Load and validate configuration from environment variables and project config. */
+export function loadConfig(workspaceRoot?: string): FlashlightConfig {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) {
     throw new Error("DEEPSEEK_API_KEY environment variable is required");
@@ -109,10 +165,7 @@ export function loadConfig(): FlashlightConfig {
     reasoningEffort = "high";
   }
 
-  let extWhitelist = DEFAULT_EXT_WHITELIST;
-  if (process.env.FLASHLIGHT_EXT_WHITELIST) {
-    extWhitelist = process.env.FLASHLIGHT_EXT_WHITELIST.split(",").map((s) => s.trim()).filter(Boolean);
-  }
+  const extWhitelist = resolveExtWhitelist(workspaceRoot);
 
   let changeThreshold = 0.1;
   const ctEnv = parseFloat(process.env.FLASHLIGHT_CHANGE_THRESHOLD ?? "");

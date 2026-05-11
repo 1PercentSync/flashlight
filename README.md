@@ -55,7 +55,7 @@ Results are returned as code snippets — the matched line ranges with line numb
 
 ## Configuration
 
-All via environment variables:
+### Environment variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -64,6 +64,26 @@ All via environment variables:
 | `FLASHLIGHT_REASONING_EFFORT` | `max` | Thinking effort (`high` or `max`) |
 | `FLASHLIGHT_CHANGE_THRESHOLD` | `0.1` | Ratio of changed tokens to trigger base rebuild |
 | `FLASHLIGHT_MAX_CONTEXT_TOKENS` | `900000` | Max tokens per shard (triggers auto-sharding when exceeded) |
+
+### Project-level config
+
+Create `.flashlight/config.json` in the workspace root to customize file extensions per project:
+
+```json
+{
+  "ext_whitelist": [".mdx", ".astro"],
+  "ext_whitelist_override": false
+}
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `ext_whitelist` | `[]` | File extensions to include |
+| `ext_whitelist_override` | `false` | `true` = only index listed extensions; `false` = merge with global defaults |
+
+**Priority:** project config > `FLASHLIGHT_EXT_WHITELIST` env var > built-in defaults.
+
+The config is read once at process start. Changes require restarting the agent environment.
 
 ## How caching works
 
