@@ -50,11 +50,13 @@ export function resolveShardPlan(
     return computeShardPlan(snapshot, maxContextTokens);
   }
 
+  const sortedStored = [...storedMeta.shards].sort((a, b) => b.prefix.length - a.prefix.length);
   const coveredFiles = new Set<string>();
   const shards: ShardEntry[] = [];
 
-  for (const { id, prefix } of storedMeta.shards) {
-    const files = getFilesForPrefix(snapshot, prefix);
+  for (const { id, prefix } of sortedStored) {
+    const allMatching = getFilesForPrefix(snapshot, prefix, id);
+    const files = allMatching.filter((f) => !coveredFiles.has(f));
     for (const f of files) coveredFiles.add(f);
 
     if (files.length === 0) continue;
@@ -70,15 +72,8 @@ export function resolveShardPlan(
 
   const orphanFiles = [...snapshot.keys()].filter((f) => !coveredFiles.has(f));
   if (orphanFiles.length > 0) {
-    const orphanTokens = sumTokens(orphanFiles, snapshot);
-    if (orphanTokens <= maxContextTokens) {
-      const prefix = findCommonPrefix(orphanFiles);
-      const id = prefix ? prefix.slice(0, -1) : "__orphan__";
-      shards.push({ id, prefix, files: orphanFiles, tokens: orphanTokens });
-    } else {
-      const orphanShards = splitLevel("", orphanFiles, snapshot, maxContextTokens);
-      shards.push(...orphanShards);
-    }
+    const orphanShards = splitLevel("", orphanFiles, snapshot, maxContextTokens);
+    shards.push(...orphanShards);
   }
 
   if (shards.length === 0) {
@@ -159,18 +154,11 @@ function canSplitFurther(parentPrefix: string, segment: string, files: string[])
   return false;
 }
 
-function findCommonPrefix(files: string[]): string {
-  if (files.length === 0) return "";
-  const first = files[0];
-  const slashIdx = first.indexOf("/");
-  if (slashIdx === -1) return "";
-  const candidate = first.slice(0, slashIdx + 1);
-  if (files.every((f) => f.startsWith(candidate))) return candidate;
-  return "";
-}
-
-function getFilesForPrefix(snapshot: Snapshot, prefix: string): string[] {
-  if (!prefix) return [...snapshot.keys()];
+function getFilesForPrefix(snapshot: Snapshot, prefix: string, id: string): string[] {
+  if (!prefix) {
+    if (id === "__all__") return [...snapshot.keys()];
+    return [...snapshot.keys()].filter((f) => !f.includes("/"));
+  }
   return [...snapshot.keys()].filter((f) => f.startsWith(prefix));
 }
 
