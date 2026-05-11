@@ -4,8 +4,6 @@ import { countTokens } from "./tokenizer.js";
 import type { Snapshot } from "./scanner.js";
 
 export interface BaseData {
-  first_turn_text: string;
-  first_turn_token_count: number;
   base_token_count: number;
   base_request_text: string;
   file_hashes: Record<string, string>;

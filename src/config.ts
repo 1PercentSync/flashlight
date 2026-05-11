@@ -5,7 +5,6 @@ export interface FlashlightConfig {
   reasoning_effort: "high" | "max";
   change_threshold: number;
   max_context_tokens: number;
-  keeper_url?: string;
 }
 
 const DEFAULT_EXT_WHITELIST = [
@@ -110,10 +109,6 @@ export function loadConfig(args: Record<string, unknown>): FlashlightConfig {
     maxContextTokens = args.max_context_tokens;
   }
 
-  const keeperUrl = typeof args.keeper_url === "string" && args.keeper_url
-    ? args.keeper_url.replace(/\/$/, "")
-    : undefined;
-
   return {
     deepseek_api_key: apiKey,
     ext_whitelist: extWhitelist,
@@ -121,6 +116,5 @@ export function loadConfig(args: Record<string, unknown>): FlashlightConfig {
     reasoning_effort: reasoningEffort,
     change_threshold: changeThreshold,
     max_context_tokens: maxContextTokens,
-    keeper_url: keeperUrl,
   };
 }

@@ -26,7 +26,6 @@ DeepSeek V4 系列提供 1M 上下文、极低的缓存命中价格（flash: 0.0
 | `reasoning_effort` | 否 | `high` | 思考强度，可选 `high`、`max` |
 | `change_threshold` | 否 | `0.1` | 变更区 token 占 Base token 比例阈值，超过则触发 Base 重建 |
 | `max_context_tokens` | 否 | `900000` | 单分片最大 token 数，超过触发自动分片 |
-| `keeper_url` | 否 | — | Keeper 服务 URL，设置后每次查询自动注册保活任务 |
 
 ---
 
@@ -123,54 +122,30 @@ user[2]: "当前是测试缓存是否依旧生效,直接回复OK"
 发起查询
   → 创建快照（内存中）
   → 获取锁 → 读取 Base 元数据 → 释放锁
-  → 发送 cache 测试 key 探测缓存
-  → 缓存存活？
-      ├─ 是 → 对比快照与 Base 的文件哈希，识别变更文件
-      │       → 变更区 token 占比超过阈值？
-      │           ├─ 是 → 重建 Base
-      │           └─ 否 → 复用 Base + 构造变更区
-      └─ 否 → 重建 Base
+  → 对比快照与 Base 的文件哈希，识别变更文件
+  → 变更区 token 占比超过阈值？
+      ├─ 是 → 重建 Base
+      └─ 否 → 复用 Base + 构造变更区
   → 构造完整上下文
   → 如重建：获取锁 → 写入新 Base（时间戳比较，防止旧覆盖新）→ 释放锁
   → 调用 DS API
   → 解析 JSON 响应
   → 从快照提取代码
   → 按三档策略格式化返回
-  → 如重建：异步发送短激活 + Base 激活（fire-and-forget）
-  → 每次查询后：异步发送 Changes 激活（fire-and-forget，best effort）
 ```
 
-#### 缓存激活请求
-
-所有激活均异步、不阻塞返回结果、失败仅记录日志。
-
-**重建后发送（并行）：**
-
-| 类型 | 内容 | 创建的缓存单元 | 目的 |
-|------|------|--------------|------|
-| 短激活 | `[firstTurn, "OK"]` | ~512 tok | 供后续探测命中 |
-| Base 激活 | `[firstTurn, base, "OK"]` | ~⌊(firstTurn+base)/128⌋×128 | 供后续查询命中 base 部分 |
-
-**每次查询后发送：**
-
-| 类型 | 内容 | 创建的缓存单元 | 目的 |
-|------|------|--------------|------|
-| Changes 激活 | `[firstTurn, base, changes, "OK"]` | ~⌊(firstTurn+base+changes)/128⌋×128 | 供下次查询命中 changes 部分（若 changes 未变） |
-
-Changes 激活大部分 tokens 命中 Base 激活的缓存，实际 miss 仅为 changes 部分，成本极低。若下次查询时 changes 已变化，该单元自然失效，Base 激活的单元仍然兜底。
+缓存命中依赖 DeepSeek 的前缀缓存机制：发送相同的 prompt 前缀即可命中，无需额外激活请求。
 
 ### 5.4 Base 重建触发条件
 
 满足任一即重建：
 
-1. 探测到 Base 缓存已失效
+1. 无 base.json（首次运行）
 2. 变更区 token 占 Base token 比例超过配置阈值
 
 ### 5.5 已实现的扩展功能
 
 - **分片（sharding）**：项目超过 `max_context_tokens` 时按目录自动拆分，并行查询，合并结果。详见 `shard.ts`
-- **缓存保活（keeper）**：独立 Docker 服务定期激活缓存，防止过期。使用自适应 TTL 学习（sentinel 探测 + 24 小时桶 + per-model 隔离）。详见 `keeper/`
-- 激活请求不做重试（失败后自愈）
 
 ---
 
@@ -331,17 +306,6 @@ flashlight/
 │   ├── shard.ts             # 分片算法（大项目自动拆分）
 │   ├── config.ts            # 配置项定义与加载
 │   └── logger.ts            # 日志输出（含缓存预测对比）
-├── keeper/                   # 缓存保活 Docker 服务
-│   ├── src/
-│   │   ├── index.ts         # HTTP 服务入口
-│   │   ├── store.ts         # 内存任务存储
-│   │   ├── scheduler.ts     # 后台调度（sentinel + 任务激活）
-│   │   ├── sentinel.ts      # 一次性测试缓存，学习 TTL
-│   │   ├── ttl.ts           # 自适应 TTL 估计器（24 小时桶 × per-model）
-│   │   ├── probe.ts         # DeepSeek probe/activate 调用
-│   │   └── log.ts           # 日志
-│   ├── Dockerfile
-│   └── docker-compose.yml
 ```
 
 ---

@@ -30,18 +30,3 @@ export function warn(msg: string): void {
 export function error(msg: string): void {
   write(`ERROR: ${msg}`);
 }
-
-export function logCacheResult(opts: {
-  type: "probe" | "query" | "activation";
-  totalTokens: number;
-  predictedHit: number;
-  actualHit: number;
-}): void {
-  const match = opts.predictedHit === opts.actualHit;
-  const msg = `cache ${opts.type}: total=${opts.totalTokens} predicted_hit=${opts.predictedHit} actual_hit=${opts.actualHit}`;
-  if (match) {
-    info(msg);
-  } else {
-    warn(msg + " MISMATCH");
-  }
-}

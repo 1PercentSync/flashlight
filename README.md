@@ -6,7 +6,7 @@ MCP Server that uses DeepSeek's 1M context window for whole-codebase code search
 
 Flashlight loads your entire codebase into DeepSeek's context, then uses LLM understanding to find relevant code — no embeddings, no keyword matching, just brute-force full-context search.
 
-It caches the codebase context on DeepSeek's side, so repeat queries are fast and cheap (cache hit price: ¥0.02/million tokens vs ¥1/million tokens for miss).
+It relies on DeepSeek's prefix caching for repeat queries: as long as the same prefix (system instructions + base code) is sent, tokens are served from cache (¥0.02/million tokens vs ¥1/million tokens for miss).
 
 For large projects exceeding the 1M token limit, Flashlight automatically shards the codebase by directory, queries all shards in parallel, and merges results.
 
@@ -68,17 +68,16 @@ All via environment variables:
 | `FLASHLIGHT_REASONING_EFFORT` | `high` | Thinking effort (`high` or `max`) |
 | `FLASHLIGHT_CHANGE_THRESHOLD` | `0.1` | Ratio of changed tokens to trigger base rebuild |
 | `FLASHLIGHT_MAX_CONTEXT_TOKENS` | `900000` | Max tokens per shard (triggers auto-sharding when exceeded) |
-| `FLASHLIGHT_KEEPER_URL` | (none) | URL of the keeper service for cache keepalive |
 
 ## How caching works
 
-On first query, Flashlight sends all code to DeepSeek and saves a base snapshot. On subsequent queries:
+Flashlight relies on DeepSeek's prefix caching. On first query, it sends all code and saves a base snapshot. On subsequent queries:
 
-1. **Probe** — check if DeepSeek's cache is still alive
-2. **If alive** — detect file changes, send only changed files + new query
-3. **If expired** — rebuild the base
+1. Detect file changes against the saved base
+2. If changed tokens exceed `FLASHLIGHT_CHANGE_THRESHOLD` (default 10%) — rebuild the base entirely
+3. Otherwise — reuse the stored base text and append only changed files as incremental context
 
-After each rebuild, activation requests establish cache for future probes and queries.
+This ensures the prompt prefix stays stable across queries, maximizing cache hit rate.
 
 ## Sharding (large projects)
 
@@ -90,50 +89,13 @@ When a project exceeds `FLASHLIGHT_MAX_CONTEXT_TOKENS`, Flashlight automatically
 
 Each shard maintains independent cache state. Shard boundaries only change when a shard overflows (split eagerly, merge lazily).
 
-## Cache Keepalive (Docker)
-
-For long-lived cache preservation, deploy the keeper service:
-
-```bash
-docker run -d -p 3100:3100 ghcr.io/1percentsync/flashlight-keeper
-```
-
-Or with docker compose (`keeper/docker-compose.yml`):
-
-```bash
-cd keeper && docker compose up -d
-```
-
-Then set `FLASHLIGHT_KEEPER_URL=http://localhost:3100` in your MCP config.
-
-### How it works
-
-The keeper **learns** the actual DeepSeek cache TTL through observation, then schedules activations just in time.
-
-1. **Sentinel**: per model, creates a tiny throwaway cache, waits ~95% of estimated TTL, probes once. If alive → TTL estimate up. If dead → TTL estimate down. Cost: ~¥0.002/day.
-2. **Adaptive timing**: 24 hourly buckets (UTC) per model, each with its own TTL estimate. Peak hours may have shorter TTL; off-peak may have longer. The keeper adapts automatically.
-3. **Task activation**: when a task's time since last activation reaches `estimated_TTL × 80%`, keeper probes and re-activates it. If the cache is already dead (shouldn't happen if sentinel timing is correct), the task is removed.
-4. **TTL persistence**: learned estimates are saved to disk (`/app/data/ttl_estimate.json`) and survive container restarts.
-
-### Keeper environment variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PORT` | `3100` | HTTP server port |
-| `MAX_LIFETIME_MS` | `172800000` (48h) | Max task lifetime |
-| `ENABLE_REFRESH` | `false` | Enable /refresh endpoint (testing only) |
-| `SENTINEL_API_KEY` | (none) | Dedicated API key for sentinel probes (uses task keys if unset) |
-| `DATA_DIR` | `/app/data` | Directory for TTL estimate persistence |
-
 ## Logs
 
 Logs are written to `.flashlight/flashlight.log` in the workspace root. Each query logs:
 - Snapshot size and shard plan
-- Cache probe result (hit/miss)
 - File change detection
 - Per-shard query cache hit ratio
 - Search results
-- Activation status
 
 ## Cost
 
@@ -143,7 +105,6 @@ With `deepseek-v4-flash` on a ~50K token codebase:
 |-----------|------|
 | First query (build cache) | ~¥0.05 |
 | Subsequent query (cache hit) | ~¥0.001 + output tokens |
-| Activation (keepalive) | ~¥0.001 per shard |
 
 ## License
 

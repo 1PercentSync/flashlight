@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import type { FlashlightConfig } from "./config.js";
-import { logCacheResult, info, warn, error } from "./logger.js";
+import { info, warn, error } from "./logger.js";
 
 export interface SearchResult {
   file: string;
@@ -16,11 +16,6 @@ export interface QueryResponse {
     prompt_cache_hit_tokens: number;
     prompt_cache_miss_tokens: number;
   };
-}
-
-interface CacheUnit {
-  position: number;
-  timestamp: number;
 }
 
 const SEARCH_TOOL: OpenAI.ChatCompletionTool = {
@@ -54,7 +49,6 @@ const SEARCH_TOOL: OpenAI.ChatCompletionTool = {
 
 let client: OpenAI;
 let config: FlashlightConfig;
-const cacheUnitsByLabel = new Map<string, CacheUnit[]>();
 
 export function initDeepSeek(cfg: FlashlightConfig): void {
   config = cfg;
@@ -62,40 +56,6 @@ export function initDeepSeek(cfg: FlashlightConfig): void {
     apiKey: cfg.deepseek_api_key,
     baseURL: "https://api.deepseek.com",
   });
-}
-
-export async function probeCache(firstTurnText: string, label = "__default__"): Promise<{
-  alive: boolean;
-  hitTokens: number;
-}> {
-  const messages = [
-    { role: "user" as const, content: firstTurnText },
-    { role: "user" as const, content: "当前是测试缓存是否依旧生效,直接回复OK" },
-  ];
-
-  const resp = await client.chat.completions.create({
-    model: config.model,
-    messages,
-    tools: [SEARCH_TOOL],
-    // @ts-expect-error DeepSeek-specific
-    thinking: { type: "disabled" },
-  });
-
-  const usage = resp.usage!;
-  // @ts-expect-error DeepSeek-specific
-  const hitTokens: number = usage.prompt_cache_hit_tokens ?? 0;
-
-  const predicted = predictCacheHit(label, usage.prompt_tokens);
-  logCacheResult({
-    type: "probe",
-    totalTokens: usage.prompt_tokens,
-    predictedHit: predicted,
-    actualHit: hitTokens,
-  });
-
-  recordCacheUnit(label, usage.prompt_tokens);
-
-  return { alive: hitTokens > 0, hitTokens };
 }
 
 export async function sendQuery(
@@ -108,7 +68,7 @@ export async function sendQuery(
     tools: [SEARCH_TOOL],
     stream: true,
     stream_options: { include_usage: true },
-    // @ts-expect-error DeepSeek-specific: reasoning_effort "max" + thinking
+    // @ts-expect-error DeepSeek-specific: reasoning_effort + thinking
     reasoning_effort: config.reasoning_effort,
     thinking: { type: "enabled" },
   });
@@ -130,21 +90,16 @@ export async function sendQuery(
 
   if (!usage) throw new Error("No usage data in stream response");
 
+  const hitTokens: number = usage.prompt_cache_hit_tokens ?? 0;
+  const hitPct = usage.prompt_tokens > 0
+    ? ((hitTokens / usage.prompt_tokens) * 100).toFixed(1)
+    : "0";
+  info(`[${label}] cache: total=${usage.prompt_tokens} hit=${hitTokens} (${hitPct}%) miss=${usage.prompt_cache_miss_tokens ?? 0}`);
+
   info(`stream: ${chunkCount} chunks, toolArgs=${toolArgs.length} chars, content=${content.length} chars`);
   if (content && !toolArgs) {
     warn(`model returned content instead of tool call: ${content.slice(0, 200)}`);
   }
-
-  const hitTokens: number = usage.prompt_cache_hit_tokens ?? 0;
-  const predicted = predictCacheHit(label, usage.prompt_tokens);
-  logCacheResult({
-    type: "query",
-    totalTokens: usage.prompt_tokens,
-    predictedHit: predicted,
-    actualHit: hitTokens,
-  });
-
-  recordCacheUnit(label, usage.prompt_tokens);
 
   let results: SearchResult[];
   if (!toolArgs) {
@@ -204,42 +159,6 @@ async function retryWithJsonMode(
   }
 }
 
-export async function sendActivation(
-  messages: { role: "user"; content: string }[],
-  label: string,
-): Promise<void> {
-  try {
-    const resp = await client.chat.completions.create({
-      model: config.model,
-      messages,
-      tools: [SEARCH_TOOL],
-      // @ts-expect-error DeepSeek-specific
-      thinking: { type: "disabled" },
-    });
-    const usage = resp.usage!;
-    // @ts-expect-error DeepSeek-specific
-    const hitTokens: number = usage.prompt_cache_hit_tokens ?? 0;
-    const predicted = predictCacheHit(label, usage.prompt_tokens);
-    logCacheResult({
-      type: "activation",
-      totalTokens: usage.prompt_tokens,
-      predictedHit: predicted,
-      actualHit: hitTokens,
-    });
-    recordCacheUnit(label, usage.prompt_tokens);
-    info(`${label} activation completed`);
-  } catch (err) {
-    error(`${label} activation failed: ${err instanceof Error ? err.message : String(err)}`);
-  }
-}
-
-export function fireActivation(
-  messages: { role: "user"; content: string }[],
-  label: string,
-): void {
-  sendActivation(messages, label).catch(() => {});
-}
-
 export async function sendParallelQueries(
   querySets: { shardId: string; messages: { role: "user"; content: string }[] }[],
 ): Promise<{ shardId: string; response: QueryResponse }[]> {
@@ -264,36 +183,4 @@ export async function sendParallelQueries(
   }
 
   return successful;
-}
-
-export function clearCacheUnits(label?: string): void {
-  if (label) {
-    cacheUnitsByLabel.delete(label);
-  } else {
-    cacheUnitsByLabel.clear();
-  }
-}
-
-function predictCacheHit(label: string, totalPromptTokens: number): number {
-  const units = cacheUnitsByLabel.get(label);
-  if (!units) return 0;
-  let bestMatch = 0;
-  for (const unit of units) {
-    if (unit.position <= totalPromptTokens && unit.position > bestMatch) {
-      bestMatch = unit.position;
-    }
-  }
-  return bestMatch;
-}
-
-function recordCacheUnit(label: string, totalPromptTokens: number): void {
-  const position = Math.floor(totalPromptTokens / 128) * 128;
-  if (position === 0) return;
-  if (!cacheUnitsByLabel.has(label)) {
-    cacheUnitsByLabel.set(label, []);
-  }
-  const units = cacheUnitsByLabel.get(label)!;
-  if (!units.some((u) => u.position === position)) {
-    units.push({ position, timestamp: Date.now() });
-  }
 }
