@@ -4,7 +4,7 @@ import type { CallToolResult } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
 import { loadConfig } from "./config.js";
 import type { FlashlightConfig } from "./config.js";
-import { initTokenizer, countTokens } from "./tokenizer.js";
+import { initTokenizer } from "./tokenizer.js";
 import { withLock } from "./lock.js";
 import { createSnapshot, resetGitTimeCache, type Snapshot } from "./scanner.js";
 import {
@@ -61,6 +61,7 @@ async function handleQuery(
   info(`--- query start: "${query.slice(0, 80)}"${scope ? ` scope=${scope}` : ""}${fileTypes ? ` types=${fileTypes.join(",")}` : ""} ---`);
 
   resetGitTimeCache();
+  const snapshotTime = Date.now();
   const snapshot = createSnapshot(workspaceRoot, config);
   info(`snapshot: ${snapshot.size} files`);
 
@@ -68,17 +69,18 @@ async function handleQuery(
   const plan = resolveShardPlan(snapshot, config.max_context_tokens, storedMeta);
 
   if (plan.shards.length === 1 && plan.shards[0].id === "__all__") {
-    return handleSingleQuery(snapshot, query, scope, fileTypes);
+    return handleSingleQuery(snapshot, snapshotTime, query, scope, fileTypes);
   }
 
   info(`sharded: ${plan.shards.length} shards [${plan.shards.map((s) => `${s.id}(${s.tokens}t)`).join(", ")}]`);
-  return handleShardedQuery(snapshot, plan, storedMeta, query, scope, fileTypes);
+  return handleShardedQuery(snapshot, snapshotTime, plan, storedMeta, query, scope, fileTypes);
 }
 
 // --- Single-shard path ---
 
 async function handleSingleQuery(
   snapshot: Snapshot,
+  snapshotTime: number,
   query: string,
   scope?: string,
   fileTypes?: string[],
@@ -140,6 +142,12 @@ async function handleSingleQuery(
   info(`sending query: ${messages.length} messages`);
 
   const response = await sendQuery(messages);
+
+  if (response.error) {
+    info(`--- query end: error ---`);
+    return { content: [{ type: "text", text: `Error: ${response.error}` }], isError: true };
+  }
+
   info(`query result: ${response.results.length} results, output=${response.usage.completion_tokens} tokens`);
 
   if (response.results.length > 0) {
@@ -158,7 +166,7 @@ async function handleSingleQuery(
       base_token_count: response.usage.prompt_tokens,
       base_request_text: baseContext,
       file_hashes: fileHashes,
-      timestamp: Date.now(),
+      timestamp: snapshotTime,
     };
 
     await withLock(workspaceRoot, async () => {
@@ -184,6 +192,7 @@ interface ShardState {
 
 async function handleShardedQuery(
   snapshot: Snapshot,
+  snapshotTime: number,
   plan: ShardPlan,
   storedMeta: ShardMeta | null,
   query: string,
@@ -248,22 +257,32 @@ async function handleShardedQuery(
   info(`sending parallel queries to ${querySets.length} shards`);
   const responses = await sendParallelQueries(querySets);
 
+  const successfulResponses: typeof responses = [];
+  const shardErrors: string[] = [];
+
   for (const { shardId, response } of responses) {
-    const hitPct = response.usage.prompt_tokens > 0
-      ? ((response.usage.prompt_cache_hit_tokens / response.usage.prompt_tokens) * 100).toFixed(1)
-      : "0";
-    info(`shard "${shardId}": ${response.results.length} results, hit=${hitPct}%`);
+    if (response.error) {
+      const state = shardStates.find((s) => s.entry.id === shardId);
+      const prefix = state?.entry.prefix || shardId;
+      shardErrors.push(`[shard "${shardId}" (${prefix})]: ${response.error}`);
+      info(`shard "${shardId}": error — ${response.error}`);
+    } else {
+      const hitPct = response.usage.prompt_tokens > 0
+        ? ((response.usage.prompt_cache_hit_tokens / response.usage.prompt_tokens) * 100).toFixed(1)
+        : "0";
+      info(`shard "${shardId}": ${response.results.length} results, hit=${hitPct}%`);
+      successfulResponses.push({ shardId, response });
+    }
   }
 
-  const mergedResults = mergeShardResults(responses.map((r) => r.response.results));
-  info(`merged: ${mergedResults.length} total results`);
+  const mergedResults = mergeShardResults(successfulResponses.map((r) => r.response.results));
+  info(`merged: ${mergedResults.length} total results, ${shardErrors.length} shard errors`);
 
-  const queryTimestamp = Date.now();
   await withLock(workspaceRoot, async () => {
     const newMeta: ShardMeta = {
       planHash: plan.planHash,
       shards: plan.shards.map((s) => ({ id: s.id, prefix: s.prefix })),
-      timestamp: queryTimestamp,
+      timestamp: snapshotTime,
     };
     writeShardMeta(workspaceRoot, newMeta);
 
@@ -271,7 +290,7 @@ async function handleShardedQuery(
       const state = shardStates[i];
       if (!state.needRebuild) continue;
 
-      const matchingResponse = responses.find((r) => r.shardId === state.entry.id);
+      const matchingResponse = successfulResponses.find((r) => r.shardId === state.entry.id);
       if (!matchingResponse) continue;
 
       const fileHashes: Record<string, string> = {};
@@ -284,7 +303,7 @@ async function handleShardedQuery(
         base_token_count: matchingResponse.response.usage.prompt_tokens,
         base_request_text: state.baseContext,
         file_hashes: fileHashes,
-        timestamp: queryTimestamp,
+        timestamp: snapshotTime,
       };
       writeShardBase(workspaceRoot, state.entry.id, newBase);
     }
@@ -292,8 +311,23 @@ async function handleShardedQuery(
     cleanupShardFiles(workspaceRoot, plan.shards.map((s) => s.id));
   });
 
-  const output = extractResults(snapshot, mergedResults, config.max_output_chars);
+  const parts: string[] = [];
+
+  if (mergedResults.length > 0 || shardErrors.length === 0) {
+    parts.push(extractResults(snapshot, mergedResults, config.max_output_chars));
+  }
+
+  if (shardErrors.length > 0) {
+    parts.push("\n\n--- Shard Errors ---\n" + shardErrors.join("\n"));
+  }
+
+  const output = parts.join("");
   info(`--- query end: returned ${output.length} chars ---`);
+
+  if (successfulResponses.length === 0 && shardErrors.length > 0) {
+    return { content: [{ type: "text", text: output }], isError: true };
+  }
+
   return { content: [{ type: "text", text: output }] };
 }
 

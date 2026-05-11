@@ -20,7 +20,9 @@ export interface QueryResponse {
     completion_tokens: number;
     prompt_cache_hit_tokens: number;
     prompt_cache_miss_tokens: number;
+    reasoning_tokens: number;
   };
+  error?: string;
 }
 
 const SEARCH_TOOL: OpenAI.ChatCompletionTool = {
@@ -28,7 +30,7 @@ const SEARCH_TOOL: OpenAI.ChatCompletionTool = {
   function: {
     name: "report_search_results",
     strict: true,
-    description: "Report code search results matching the query",
+    description: "MUST be called as the first and only response. All responses MUST be tool calls to this function. Never respond with plain text.",
     parameters: {
       type: "object",
       properties: {
@@ -52,8 +54,14 @@ const SEARCH_TOOL: OpenAI.ChatCompletionTool = {
   },
 };
 
+const MAX_RETRIES = 3;
+const RETRYABLE_STATUS_CODES = new Set([429, 500, 503]);
+
 let client: OpenAI;
 let config: FlashlightConfig;
+
+let totalPromptTokens = 0;
+let totalHitTokens = 0;
 
 /** Initialize the DeepSeek API client. Must be called before any queries. */
 export function initDeepSeek(cfg: FlashlightConfig): void {
@@ -65,14 +73,56 @@ export function initDeepSeek(cfg: FlashlightConfig): void {
 }
 
 /**
- * Send a streaming query to DeepSeek and parse the tool call response.
- * Falls back to JSON output mode if the model doesn't produce a tool call.
+ * Send a streaming query to DeepSeek with retry logic.
+ * Retries up to 3 times for: no tool call responses, and retryable API errors (429/500/503).
+ * Non-retryable API errors (400/401/402/422) fail immediately.
+ * On final failure, returns a QueryResponse with an error field instead of throwing.
  * @param label - Identifier for logging (shard ID or "__default__").
  */
 export async function sendQuery(
   messages: { role: "user"; content: string }[],
   label = "__default__",
 ): Promise<QueryResponse> {
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const response = await executeQuery(messages, label);
+      if (response) return response;
+      if (attempt < MAX_RETRIES) {
+        const delay = getBackoffDelay(attempt);
+        warn(`[${label}] no tool call in response, retrying (${attempt}/${MAX_RETRIES}) after ${delay}ms`);
+        await sleep(delay);
+      }
+    } catch (err) {
+      const statusCode = getStatusCode(err);
+      const errMsg = err instanceof Error ? err.message : String(err);
+
+      if (statusCode !== null && !RETRYABLE_STATUS_CODES.has(statusCode)) {
+        error(`[${label}] non-retryable API error (${statusCode}): ${errMsg}`);
+        return makeErrorResponse(`API error ${statusCode}: ${errMsg}`);
+      }
+
+      if (attempt < MAX_RETRIES) {
+        const delay = getBackoffDelay(attempt);
+        warn(`[${label}] retryable error (${statusCode ?? "unknown"}): ${errMsg}, retrying (${attempt}/${MAX_RETRIES}) after ${delay}ms`);
+        await sleep(delay);
+      } else {
+        error(`[${label}] failed after ${MAX_RETRIES} attempts: ${errMsg}`);
+        return makeErrorResponse(`Failed after ${MAX_RETRIES} retries: ${errMsg}`);
+      }
+    }
+  }
+
+  return makeErrorResponse(`[${label}] no tool call after ${MAX_RETRIES} attempts`);
+}
+
+/**
+ * Execute a single query attempt. Returns QueryResponse on success (tool call parsed),
+ * null if model didn't produce a tool call, or throws on API error.
+ */
+async function executeQuery(
+  messages: { role: "user"; content: string }[],
+  label: string,
+): Promise<QueryResponse | null> {
   const stream = await client.chat.completions.create({
     model: config.model,
     messages,
@@ -108,73 +158,45 @@ export async function sendQuery(
   const hitPct = usage.prompt_tokens > 0
     ? ((hitTokens / usage.prompt_tokens) * 100).toFixed(1)
     : "0";
+  totalPromptTokens += usage.prompt_tokens;
+  totalHitTokens += hitTokens;
+  const avgHitPct = totalPromptTokens > 0
+    ? ((totalHitTokens / totalPromptTokens) * 100).toFixed(1)
+    : "0";
   info(`[${label}] usage: prompt=${usage.prompt_tokens} (hit=${hitTokens} ${hitPct}%, miss=${missTokens}), completion=${completionTokens} (reasoning=${reasoningTokens})`);
-
+  info(`[session] cumulative cache hit rate: ${avgHitPct}% (${totalHitTokens}/${totalPromptTokens} tokens)`);
   info(`stream: ${chunkCount} chunks, toolArgs=${toolArgs.length} chars, content=${content.length} chars`);
-  if (content && !toolArgs) {
-    warn(`model returned content instead of tool call: ${content.slice(0, 200)}`);
+
+  if (!toolArgs) {
+    if (content) {
+      warn(`[${label}] model returned content instead of tool call: ${content.slice(0, 200)}`);
+    } else {
+      warn(`[${label}] no tool call and no content in response`);
+    }
+    return null;
   }
 
   let results: SearchResult[];
-  if (!toolArgs) {
-    if (content) {
-      info("no tool call, retrying with JSON output mode");
-      results = await retryWithJsonMode(messages, usage);
-    } else {
-      warn("no tool call and no content in response");
-      results = [];
-    }
-  } else {
-    try {
-      const parsed = JSON.parse(toolArgs);
-      results = Array.isArray(parsed.results) ? parsed.results : [];
-    } catch {
-      throw new Error(`Failed to parse tool call arguments: ${toolArgs.slice(0, 200)}`);
-    }
+  try {
+    const parsed = JSON.parse(toolArgs);
+    results = Array.isArray(parsed.results) ? parsed.results : [];
+  } catch {
+    throw new Error(`Failed to parse tool call arguments: ${toolArgs.slice(0, 200)}`);
   }
 
   return {
     results,
     usage: {
       prompt_tokens: usage.prompt_tokens,
-      completion_tokens: usage.completion_tokens,
+      completion_tokens: completionTokens,
       prompt_cache_hit_tokens: hitTokens,
-      prompt_cache_miss_tokens: usage.prompt_cache_miss_tokens ?? 0,
+      prompt_cache_miss_tokens: missTokens,
+      reasoning_tokens: reasoningTokens,
     },
   };
 }
 
-async function retryWithJsonMode(
-  messages: { role: "user"; content: string }[],
-  originalUsage: any,
-): Promise<SearchResult[]> {
-  try {
-    const retryMessages = [
-      ...messages,
-      { role: "user" as const, content: '请以JSON格式输出搜索结果，格式为 {"results": [{"file": "path", "start_line": 1, "end_line": 10}, ...]}。如果没有找到相关代码，输出 {"results": []}' },
-    ];
-
-    const resp = await client.chat.completions.create({
-      model: config.model,
-      messages: retryMessages,
-      response_format: { type: "json_object" },
-      // @ts-expect-error DeepSeek-specific
-      reasoning_effort: config.reasoning_effort,
-      thinking: { type: "enabled" },
-    });
-
-    const text = resp.choices[0]?.message?.content ?? "";
-    const parsed = JSON.parse(text);
-    const results: SearchResult[] = Array.isArray(parsed.results) ? parsed.results : [];
-    info(`JSON retry: got ${results.length} results`);
-    return results;
-  } catch (err) {
-    warn(`JSON retry failed: ${err instanceof Error ? err.message : String(err)}`);
-    return [];
-  }
-}
-
-/** Send queries to multiple shards in parallel. Returns only successful results. Throws if all fail. */
+/** Send queries to multiple shards in parallel. Returns all results (including failed ones with error field). */
 export async function sendParallelQueries(
   querySets: { shardId: string; messages: { role: "user"; content: string }[] }[],
 ): Promise<{ shardId: string; response: QueryResponse }[]> {
@@ -185,18 +207,45 @@ export async function sendParallelQueries(
     }),
   );
 
-  const successful: { shardId: string; response: QueryResponse }[] = [];
-  for (const result of results) {
+  const responses: { shardId: string; response: QueryResponse }[] = [];
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
     if (result.status === "fulfilled") {
-      successful.push(result.value);
+      responses.push(result.value);
     } else {
-      error(`shard query failed: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`);
+      const errMsg = result.reason instanceof Error ? result.reason.message : String(result.reason);
+      error(`shard "${querySets[i].shardId}" unexpected failure: ${errMsg}`);
+      responses.push({
+        shardId: querySets[i].shardId,
+        response: makeErrorResponse(errMsg),
+      });
     }
   }
 
-  if (successful.length === 0 && querySets.length > 0) {
-    throw new Error("All shard queries failed");
-  }
+  return responses;
+}
 
-  return successful;
+function makeErrorResponse(errorMsg: string): QueryResponse {
+  return {
+    results: [],
+    usage: { prompt_tokens: 0, completion_tokens: 0, prompt_cache_hit_tokens: 0, prompt_cache_miss_tokens: 0, reasoning_tokens: 0 },
+    error: errorMsg,
+  };
+}
+
+function getBackoffDelay(attempt: number): number {
+  const base = Math.min(1000 * 2 ** (attempt - 1), 8000);
+  const jitter = Math.random() * base * 0.5;
+  return Math.round(base + jitter);
+}
+
+function getStatusCode(err: unknown): number | null {
+  if (err && typeof err === "object" && "status" in err && typeof (err as any).status === "number") {
+    return (err as any).status;
+  }
+  return null;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }
