@@ -40,6 +40,7 @@ server.registerTool(
       scope: z.string().optional().describe("Relative directory path to narrow search scope"),
       file_types: z.array(z.string()).optional().describe("File extensions to filter (e.g. [\".ts\", \".py\"])"),
     }),
+    _meta: { "anthropic/maxResultSizeChars": 500_000 },
   },
   async ({ query, scope, file_types }): Promise<CallToolResult> => {
     try {

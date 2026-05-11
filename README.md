@@ -61,7 +61,7 @@ All via environment variables:
 |----------|---------|-------------|
 | `DEEPSEEK_API_KEY` | (required) | DeepSeek API key |
 | `FLASHLIGHT_MODEL` | `deepseek-v4-flash` | Model (`deepseek-v4-flash` or `deepseek-v4-pro`) |
-| `FLASHLIGHT_REASONING_EFFORT` | `high` | Thinking effort (`high` or `max`) |
+| `FLASHLIGHT_REASONING_EFFORT` | `max` | Thinking effort (`high` or `max`) |
 | `FLASHLIGHT_CHANGE_THRESHOLD` | `0.1` | Ratio of changed tokens to trigger base rebuild |
 | `FLASHLIGHT_MAX_CONTEXT_TOKENS` | `900000` | Max tokens per shard (triggers auto-sharding when exceeded) |
 

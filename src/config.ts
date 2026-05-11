@@ -104,9 +104,9 @@ export function loadConfig(): FlashlightConfig {
     model = "deepseek-v4-pro";
   }
 
-  let reasoningEffort: FlashlightConfig["reasoning_effort"] = "high";
-  if (process.env.FLASHLIGHT_REASONING_EFFORT === "max") {
-    reasoningEffort = "max";
+  let reasoningEffort: FlashlightConfig["reasoning_effort"] = "max";
+  if (process.env.FLASHLIGHT_REASONING_EFFORT === "high") {
+    reasoningEffort = "high";
   }
 
   let extWhitelist = DEFAULT_EXT_WHITELIST;
