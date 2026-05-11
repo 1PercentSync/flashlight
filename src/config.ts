@@ -47,6 +47,8 @@ const DEFAULT_EXT_WHITELIST = [
   ".rs",
   // MATLAB / Octave
   ".m",
+  // C / C++ inline implementations
+  ".inl",
   // Assembly
   ".asm", ".s", ".S",
   // Swift
@@ -77,12 +79,17 @@ const DEFAULT_EXT_WHITELIST = [
   ".ml", ".mli",
   // Clojure
   ".clj", ".cljs", ".cljc",
+  // Shader languages (GLSL / HLSL / WGSL / Metal / SPIR-V)
+  ".glsl", ".vert", ".frag", ".comp", ".geom", ".tesc", ".tese",
+  ".rgen", ".rchit", ".rahit", ".rmiss", ".rint", ".rcall",
+  ".mesh", ".task",
+  ".hlsl", ".hlsli", ".fx",
+  ".wgsl",
+  ".metal",
   // Vue / Svelte
   ".vue", ".svelte",
   // Markup / Style (hand-written)
   ".html", ".htm", ".css", ".scss", ".less",
-  // Documentation
-  ".md", ".txt",
   // Config (hand-written, typically small)
   ".yaml", ".yml", ".toml",
 ];
