@@ -244,7 +244,6 @@ async function handleShardedQuery(
     }
   }
 
-  const directoryTree = buildDirectoryTree(snapshot, null);
   const systemInstructions = getShardedSystemInstructions();
 
   const relevantStates = scope
@@ -256,6 +255,8 @@ async function handleShardedQuery(
   }
 
   const querySets = relevantStates.map((state) => {
+    const shardFileSet = new Set(state.entry.files);
+    const directoryTree = buildDirectoryTree(snapshot, null, shardFileSet);
     const queryTurn = buildQueryTurn(directoryTree, query, scope, fileTypes, {
       id: state.entry.id,
       totalShards: plan.shards.length,

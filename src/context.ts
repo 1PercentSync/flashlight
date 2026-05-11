@@ -94,10 +94,16 @@ export function buildChangeContext(
   return parts.join("\n\n");
 }
 
-/** Build a directory tree string with optional change annotations ([CHANGED], [DELETED]). */
+/**
+ * Build a directory tree string with optional change annotations ([CHANGED], [DELETED]).
+ * When shardFiles is provided, only files in the set are listed individually;
+ * other directories show a summary count to preserve project structure awareness
+ * without exposing file names that could trigger hallucinated results.
+ */
 export function buildDirectoryTree(
   snapshot: Snapshot,
   changes: ChangeDetectionResult | null,
+  shardFiles?: Set<string>,
 ): string {
   const tree = new Map<string, string[]>();
   const fileStatus = new Map<string, string>();
@@ -126,12 +132,33 @@ export function buildDirectoryTree(
   const dirs = [...tree.keys()].sort();
   const lines: string[] = [];
   for (const dir of dirs) {
-    lines.push(`${dir}/`);
     const files = tree.get(dir)!.sort();
-    for (const file of files) {
-      const name = file.includes("/") ? file.substring(file.lastIndexOf("/") + 1) : file;
-      const status = fileStatus.get(file) ?? "";
-      lines.push(`  ${name}${status}`);
+
+    if (shardFiles) {
+      const inShard = files.filter((f) => shardFiles.has(f));
+      const otherCount = files.length - inShard.length;
+
+      if (inShard.length === 0) {
+        lines.push(`${dir}/ (${otherCount} files, other shards)`);
+        continue;
+      }
+
+      lines.push(`${dir}/`);
+      for (const file of inShard) {
+        const name = file.includes("/") ? file.substring(file.lastIndexOf("/") + 1) : file;
+        const status = fileStatus.get(file) ?? "";
+        lines.push(`  ${name}${status}`);
+      }
+      if (otherCount > 0) {
+        lines.push(`  (${otherCount} more files, other shards)`);
+      }
+    } else {
+      lines.push(`${dir}/`);
+      for (const file of files) {
+        const name = file.includes("/") ? file.substring(file.lastIndexOf("/") + 1) : file;
+        const status = fileStatus.get(file) ?? "";
+        lines.push(`  ${name}${status}`);
+      }
     }
   }
   return lines.join("\n");
