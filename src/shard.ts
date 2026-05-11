@@ -72,7 +72,8 @@ export function resolveShardPlan(
 
   const orphanFiles = [...snapshot.keys()].filter((f) => !coveredFiles.has(f));
   if (orphanFiles.length > 0) {
-    const orphanShards = splitLevel("", orphanFiles, snapshot, maxContextTokens);
+    const existingPrefixes = shards.map((s) => s.prefix).filter(Boolean);
+    const orphanShards = splitOrphans("", orphanFiles, existingPrefixes, snapshot, maxContextTokens);
     shards.push(...orphanShards);
   }
 
@@ -152,6 +153,45 @@ function canSplitFurther(parentPrefix: string, segment: string, files: string[])
     if (relative.includes("/")) return true;
   }
   return false;
+}
+
+/**
+ * Split orphan files into shards, ensuring no orphan shard's prefix
+ * is an ancestor of any existing shard's prefix.
+ */
+function splitOrphans(
+  parentPrefix: string,
+  files: string[],
+  existingPrefixes: string[],
+  snapshot: Snapshot,
+  maxContextTokens: number,
+): ShardEntry[] {
+  const groups = groupByNextSegment(parentPrefix, files);
+  const shards: ShardEntry[] = [];
+
+  for (const [segment, groupFiles] of groups) {
+    const prefix = segment === "__root__"
+      ? parentPrefix
+      : parentPrefix ? `${parentPrefix}${segment}/` : `${segment}/`;
+    const id = segment === "__root__"
+      ? (parentPrefix ? `${parentPrefix}__root__` : "__root__")
+      : prefix.slice(0, -1);
+    const tokens = sumTokens(groupFiles, snapshot);
+
+    const conflictsWithExisting = prefix && existingPrefixes.some((ep) => ep.startsWith(prefix));
+
+    if (conflictsWithExisting) {
+      const subShards = splitOrphans(prefix, groupFiles, existingPrefixes, snapshot, maxContextTokens);
+      shards.push(...subShards);
+    } else if (tokens <= maxContextTokens) {
+      shards.push({ id, prefix, files: groupFiles, tokens });
+    } else {
+      const subShards = splitLevel(prefix, groupFiles, snapshot, maxContextTokens);
+      shards.push(...subShards);
+    }
+  }
+
+  return shards;
 }
 
 function getFilesForPrefix(snapshot: Snapshot, prefix: string, id: string): string[] {
