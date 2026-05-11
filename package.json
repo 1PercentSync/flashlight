@@ -1,6 +1,6 @@
 {
   "name": "@1percentsync/flashlight",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "MCP Server that uses DeepSeek's 1M context window for whole-codebase code search",
   "type": "module",
   "bin": {
