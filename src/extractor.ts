@@ -1,5 +1,6 @@
 import type { Snapshot } from "./scanner.js";
 import type { SearchResult } from "./deepseek.js";
+import { warn } from "./logger.js";
 
 /**
  * Format search results using a three-tier strategy:
@@ -10,7 +11,7 @@ import type { SearchResult } from "./deepseek.js";
 export function extractResults(snapshot: Snapshot, results: SearchResult[], maxOutputChars: number): string {
   if (results.length === 0) return "No matching code found.";
 
-  const valid = results.filter((r) => snapshot.has(r.file));
+  const valid = normalizeResults(snapshot, results);
   if (valid.length === 0) return "No matching files found in snapshot.";
 
   const merged = mergeOverlappingRanges(valid);
@@ -110,6 +111,35 @@ function formatIndex(results: SearchResult[]): string {
     (r) => `${r.file}:${r.start_line}-${r.end_line}`,
   );
   return "Results exceed size limit. DO NOT retry with narrower queries. Instead, use the Read tool to read ALL files listed below to view their content. The index IS the successful search result.\n\n" + lines.join("\n");
+}
+
+function normalizeResults(snapshot: Snapshot, results: SearchResult[]): SearchResult[] {
+  const normalized: SearchResult[] = [];
+  for (const r of results) {
+    const entry = snapshot.get(r.file);
+    if (!entry) {
+      warn(`result filtered: file "${r.file}" not in snapshot`);
+      continue;
+    }
+    if (typeof r.start_line !== "number" || typeof r.end_line !== "number") {
+      warn(`result filtered: invalid line numbers for "${r.file}"`);
+      continue;
+    }
+
+    const totalLines = entry.content.split("\n").length;
+    let start = Math.max(1, Math.round(r.start_line));
+    let end = Math.max(1, Math.round(r.end_line));
+    if (start > end) [start, end] = [end, start];
+    end = Math.min(end, totalLines);
+
+    if (start > totalLines) {
+      warn(`result filtered: "${r.file}":${r.start_line}-${r.end_line} beyond file length (${totalLines} lines)`);
+      continue;
+    }
+
+    normalized.push({ file: r.file, start_line: start, end_line: end });
+  }
+  return normalized;
 }
 
 function formatRanges(lineNumbers: number[]): string {

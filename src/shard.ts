@@ -39,7 +39,8 @@ export function computeShardPlan(snapshot: Snapshot, maxContextTokens: number): 
 
 /**
  * Resolve the shard plan: reuse the stored plan if all shards still fit,
- * otherwise recompute from scratch.
+ * otherwise recompute from scratch. Empty shards are pruned; if remaining
+ * shards fit in a single shard, collapses back to single-shard mode.
  */
 export function resolveShardPlan(
   snapshot: Snapshot,
@@ -58,13 +59,19 @@ export function resolveShardPlan(
     }
   }
 
-  const shards: ShardEntry[] = storedMeta.shards.map(({ id, prefix }) => {
-    const files = getFilesForPrefix(snapshot, prefix);
-    const tokens = sumTokens(files, snapshot);
-    return { id, prefix, files, tokens };
-  });
+  const shards: ShardEntry[] = storedMeta.shards
+    .map(({ id, prefix }) => {
+      const files = getFilesForPrefix(snapshot, prefix);
+      const tokens = sumTokens(files, snapshot);
+      return { id, prefix, files, tokens };
+    })
+    .filter((s) => s.files.length > 0);
 
-  return { shards, planHash: storedMeta.planHash };
+  if (shards.length === 0) {
+    return computeShardPlan(snapshot, maxContextTokens);
+  }
+
+  return { shards, planHash: computePlanHash(shards) };
 }
 
 /** Compute a deterministic hash of shard boundaries for change detection. */

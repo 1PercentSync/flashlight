@@ -24,7 +24,7 @@ import {
 import { initDeepSeek, sendQuery, sendParallelQueries } from "./deepseek.js";
 import { extractResults } from "./extractor.js";
 import { resolveShardPlan, type ShardPlan, type ShardEntry } from "./shard.js";
-import { initLogger, info, error } from "./logger.js";
+import { initLogger, info, warn, error } from "./logger.js";
 import type { SearchResult } from "./deepseek.js";
 
 const server = new McpServer({ name: "flashlight", version: "0.5.0" });
@@ -162,8 +162,13 @@ async function handleSingleQuery(
       fileHashes[filePath] = entry.hash;
     }
 
+    let baseTokenCount = 0;
+    for (const entry of snapshot.values()) {
+      baseTokenCount += entry.tokens;
+    }
+
     const newBase: BaseData = {
-      base_token_count: response.usage.prompt_tokens,
+      base_token_count: baseTokenCount,
       base_request_text: baseContext,
       file_hashes: fileHashes,
       timestamp: snapshotTime,
@@ -172,7 +177,7 @@ async function handleSingleQuery(
     await withLock(workspaceRoot, async () => {
       writeBase(workspaceRoot, newBase);
     });
-    info(`base saved: ${Object.keys(fileHashes).length} files`);
+    info(`base saved: ${Object.keys(fileHashes).length} files, ${baseTokenCount} tokens`);
   }
 
   const output = extractResults(snapshot, response.results, config.max_output_chars);
@@ -204,13 +209,16 @@ async function handleShardedQuery(
     info(`shard plan changed (stored=${storedMeta?.planHash ?? "none"}, current=${plan.planHash})`);
   }
 
-  const shardStates: ShardState[] = plan.shards.map((entry) => ({
-    entry,
-    base: planChanged ? null : readShardBase(workspaceRoot, entry.id),
-    needRebuild: planChanged,
-    baseContext: "",
-    changeContext: "",
-  }));
+  const shardStates: ShardState[] = plan.shards.map((entry) => {
+    const base = planChanged ? null : readShardBase(workspaceRoot, entry.id);
+    return {
+      entry,
+      base,
+      needRebuild: planChanged || !base,
+      baseContext: "",
+      changeContext: "",
+    };
+  });
 
   for (const state of shardStates) {
     if (state.needRebuild) {
@@ -236,7 +244,15 @@ async function handleShardedQuery(
   const directoryTree = buildDirectoryTree(snapshot, null);
   const systemInstructions = getShardedSystemInstructions();
 
-  const querySets = shardStates.map((state) => {
+  const relevantStates = scope
+    ? shardStates.filter((state) => shardIntersectsScope(state.entry.prefix, scope))
+    : shardStates;
+
+  if (scope && relevantStates.length < shardStates.length) {
+    info(`scope="${scope}": querying ${relevantStates.length}/${shardStates.length} shards`);
+  }
+
+  const querySets = relevantStates.map((state) => {
     const queryTurn = buildQueryTurn(directoryTree, query, scope, fileTypes, {
       id: state.entry.id,
       totalShards: plan.shards.length,
@@ -275,6 +291,17 @@ async function handleShardedQuery(
     }
   }
 
+  for (const { shardId, response } of successfulResponses) {
+    const state = relevantStates.find((s) => s.entry.id === shardId);
+    if (!state) continue;
+    const shardFiles = new Set(state.entry.files);
+    const before = response.results.length;
+    response.results = response.results.filter((r) => shardFiles.has(r.file));
+    if (response.results.length < before) {
+      warn(`shard "${shardId}": filtered ${before - response.results.length} results outside shard file list`);
+    }
+  }
+
   const mergedResults = mergeShardResults(successfulResponses.map((r) => r.response.results));
   info(`merged: ${mergedResults.length} total results, ${shardErrors.length} shard errors`);
 
@@ -299,8 +326,14 @@ async function handleShardedQuery(
         if (entry) fileHashes[filePath] = entry.hash;
       }
 
+      let shardTokenCount = 0;
+      for (const filePath of state.entry.files) {
+        const entry = snapshot.get(filePath);
+        if (entry) shardTokenCount += entry.tokens;
+      }
+
       const newBase: BaseData = {
-        base_token_count: matchingResponse.response.usage.prompt_tokens,
+        base_token_count: shardTokenCount,
         base_request_text: state.baseContext,
         file_hashes: fileHashes,
         timestamp: snapshotTime,
@@ -329,6 +362,12 @@ async function handleShardedQuery(
   }
 
   return { content: [{ type: "text", text: output }] };
+}
+
+function shardIntersectsScope(prefix: string, scope: string): boolean {
+  if (!prefix) return true;
+  const normalizedScope = scope.endsWith("/") ? scope : scope + "/";
+  return normalizedScope.startsWith(prefix) || prefix.startsWith(normalizedScope);
 }
 
 function filterSnapshot(snapshot: Snapshot, files: string[]): Snapshot {

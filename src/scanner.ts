@@ -21,17 +21,55 @@ export interface FileEntry {
 /** Immutable map of relative file paths to their snapshot entries. */
 export type Snapshot = Map<string, FileEntry>;
 
+interface FileMeta {
+  mtimeMs: number;
+  size: number;
+  content: string;
+  hash: string;
+  tokens: number;
+}
+
+const fileMetaCache = new Map<string, FileMeta>();
+
 /** Scan the workspace and create an in-memory snapshot of all whitelisted files. */
 export function createSnapshot(workspaceRoot: string, config: FlashlightConfig): Snapshot {
   const files = scanFiles(workspaceRoot, config.ext_whitelist);
   const snapshot: Snapshot = new Map();
+  const seenPaths = new Set<string>();
+
   for (const relativePath of files) {
     const fullPath = path.join(workspaceRoot, relativePath);
-    const content = fs.readFileSync(fullPath, "utf-8");
+    seenPaths.add(relativePath);
+
+    let stat: fs.Stats;
+    try {
+      stat = fs.statSync(fullPath);
+    } catch {
+      continue;
+    }
+
+    const cached = fileMetaCache.get(relativePath);
+    if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+      snapshot.set(relativePath, {
+        relativePath,
+        content: cached.content,
+        hash: cached.hash,
+        tokens: cached.tokens,
+      });
+      continue;
+    }
+
+    const content = fs.readFileSync(fullPath, "utf-8").replace(/\r\n/g, "\n");
     const hash = crypto.createHash("sha256").update(content).digest("hex");
     const tokens = countTokens(content);
+    fileMetaCache.set(relativePath, { mtimeMs: stat.mtimeMs, size: stat.size, content, hash, tokens });
     snapshot.set(relativePath, { relativePath, content, hash, tokens });
   }
+
+  for (const key of fileMetaCache.keys()) {
+    if (!seenPaths.has(key)) fileMetaCache.delete(key);
+  }
+
   return snapshot;
 }
 
