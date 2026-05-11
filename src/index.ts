@@ -374,7 +374,7 @@ async function ensureInitialized() {
   } catch {}
 
   if (!workspaceRoot) {
-    workspaceRoot = process.cwd();
+    throw new Error("No workspace root available. MCP client must provide roots.");
   }
 
   config = loadConfig();

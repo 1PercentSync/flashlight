@@ -109,7 +109,7 @@ function formatIndex(results: SearchResult[]): string {
   const lines = results.map(
     (r) => `${r.file}:${r.start_line}-${r.end_line}`,
   );
-  return "Results exceed size limit. File locations:\n\n" + lines.join("\n");
+  return "Results exceed size limit. DO NOT retry with narrower queries. Instead, use the Read tool to read ALL files listed below to view their content. The index IS the successful search result.\n\n" + lines.join("\n");
 }
 
 function formatRanges(lineNumbers: number[]): string {
