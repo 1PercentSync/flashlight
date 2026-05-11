@@ -34,7 +34,7 @@ let workspaceRoot: string;
 server.registerTool(
   "search",
   {
-    description: "Search code in the workspace using DeepSeek's 1M context window. Returns full code snippets when results are small, or an index of file:line-range locations when results are large. IMPORTANT: When the response starts with 'Results exceed size limit', DO NOT retry with narrower queries. Instead, use the Read tool to read ALL files listed in the index to view their content. The index IS the successful search result — it tells you exactly where the relevant code is, and you must read every entry.",
+    description: "Search code in the workspace using DeepSeek's 1M context window. Returns full code snippets with line numbers for all matched locations.",
     inputSchema: z.object({
       query: z.string().describe("Natural language description of the code to find"),
       scope: z.string().optional().describe("Relative directory path to narrow search scope"),
@@ -180,7 +180,7 @@ async function handleSingleQuery(
     info(`base saved: ${Object.keys(fileHashes).length} files, ${baseTokenCount} tokens`);
   }
 
-  const output = extractResults(snapshot, response.results, config.max_output_chars);
+  const output = extractResults(snapshot, response.results);
   info(`--- query end: returned ${output.length} chars ---`);
   return { content: [{ type: "text", text: output }] };
 }
@@ -351,7 +351,7 @@ async function handleShardedQuery(
   const parts: string[] = [];
 
   if (mergedResults.length > 0 || shardErrors.length === 0) {
-    parts.push(extractResults(snapshot, mergedResults, config.max_output_chars));
+    parts.push(extractResults(snapshot, mergedResults));
   }
 
   if (shardErrors.length > 0) {

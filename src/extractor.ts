@@ -2,24 +2,15 @@ import type { Snapshot } from "./scanner.js";
 import type { SearchResult } from "./deepseek.js";
 import { warn } from "./logger.js";
 
-/**
- * Format search results using a three-tier strategy:
- * 1. Full files (if total size fits within limit)
- * 2. Code snippets (matched line ranges only)
- * 3. Index (file:line-range list for the caller to read manually)
- */
-export function extractResults(snapshot: Snapshot, results: SearchResult[], maxOutputChars: number): string {
+/** Format search results as code snippets (matched line ranges with line numbers). */
+export function extractResults(snapshot: Snapshot, results: SearchResult[]): string {
   if (results.length === 0) return "No matching code found.";
 
   const valid = normalizeResults(snapshot, results);
   if (valid.length === 0) return "No matching files found in snapshot.";
 
   const merged = mergeOverlappingRanges(valid);
-
-  const snippets = trySnippets(snapshot, merged, maxOutputChars);
-  if (snippets) return snippets;
-
-  return formatIndex(merged);
+  return formatSnippets(snapshot, merged);
 }
 
 function mergeOverlappingRanges(results: SearchResult[]): SearchResult[] {
@@ -51,9 +42,7 @@ function mergeOverlappingRanges(results: SearchResult[]): SearchResult[] {
   return merged;
 }
 
-
-function trySnippets(snapshot: Snapshot, results: SearchResult[], charLimit: number): string | null {
-  let totalChars = 0;
+function formatSnippets(snapshot: Snapshot, results: SearchResult[]): string {
   const parts: string[] = [];
 
   for (const r of results) {
@@ -63,21 +52,10 @@ function trySnippets(snapshot: Snapshot, results: SearchResult[], charLimit: num
     const end = Math.min(lines.length, r.end_line);
     const slice = lines.slice(start, end);
     const numbered = slice.map((line, i) => `${start + i + 1}\t${line}`).join("\n");
-    const snippet = `--- ${entry.relativePath}:${r.start_line}-${r.end_line} ---\n${numbered}`;
-    totalChars += snippet.length;
-    parts.push(snippet);
+    parts.push(`--- ${entry.relativePath}:${r.start_line}-${r.end_line} ---\n${numbered}`);
   }
 
-  if (totalChars > charLimit) return null;
-
   return parts.join("\n\n");
-}
-
-function formatIndex(results: SearchResult[]): string {
-  const lines = results.map(
-    (r) => `${r.file}:${r.start_line}-${r.end_line}`,
-  );
-  return "Results exceed size limit. DO NOT retry with narrower queries. Instead, use the Read tool to read ALL files listed below to view their content. The index IS the successful search result.\n\n" + lines.join("\n");
 }
 
 function normalizeResults(snapshot: Snapshot, results: SearchResult[]): SearchResult[] {

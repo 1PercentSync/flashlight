@@ -12,8 +12,6 @@ export interface FlashlightConfig {
   change_threshold: number;
   /** Max tokens per shard before auto-sharding kicks in. */
   max_context_tokens: number;
-  /** Max output characters for search results before falling back to index mode. */
-  max_output_chars: number;
 }
 
 const DEFAULT_EXT_WHITELIST = [
@@ -128,12 +126,6 @@ export function loadConfig(): FlashlightConfig {
     maxContextTokens = mctEnv;
   }
 
-  let maxOutputChars = 50_000;
-  const mocEnv = parseInt(process.env.FLASHLIGHT_MAX_OUTPUT_CHARS ?? "", 10);
-  if (mocEnv > 0) {
-    maxOutputChars = mocEnv;
-  }
-
   return {
     deepseek_api_key: apiKey,
     ext_whitelist: extWhitelist,
@@ -141,6 +133,5 @@ export function loadConfig(): FlashlightConfig {
     reasoning_effort: reasoningEffort,
     change_threshold: changeThreshold,
     max_context_tokens: maxContextTokens,
-    max_output_chars: maxOutputChars,
   };
 }
