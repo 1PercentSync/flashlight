@@ -209,12 +209,15 @@ async function handleShardedQuery(
     info(`shard plan changed (stored=${storedMeta?.planHash ?? "none"}, current=${plan.planHash})`);
   }
 
+  const oldShardIds = new Set(storedMeta?.shards.map((s) => s.id) ?? []);
+
   const shardStates: ShardState[] = plan.shards.map((entry) => {
-    const base = planChanged ? null : readShardBase(workspaceRoot, entry.id);
+    const isNew = !oldShardIds.has(entry.id);
+    const base = isNew ? null : readShardBase(workspaceRoot, entry.id);
     return {
       entry,
       base,
-      needRebuild: planChanged || !base,
+      needRebuild: isNew || !base,
       baseContext: "",
       changeContext: "",
     };

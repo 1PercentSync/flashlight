@@ -38,9 +38,8 @@ export function computeShardPlan(snapshot: Snapshot, maxContextTokens: number): 
 }
 
 /**
- * Resolve the shard plan: reuse the stored plan if all shards still fit,
- * otherwise recompute from scratch. Empty shards are pruned; if remaining
- * shards fit in a single shard, collapses back to single-shard mode.
+ * Resolve the shard plan incrementally: reuse shards that still fit,
+ * split only those that exceed the budget, adopt orphan files as new shards.
  */
 export function resolveShardPlan(
   snapshot: Snapshot,
@@ -51,21 +50,36 @@ export function resolveShardPlan(
     return computeShardPlan(snapshot, maxContextTokens);
   }
 
+  const coveredFiles = new Set<string>();
+  const shards: ShardEntry[] = [];
+
   for (const { id, prefix } of storedMeta.shards) {
     const files = getFilesForPrefix(snapshot, prefix);
+    for (const f of files) coveredFiles.add(f);
+
+    if (files.length === 0) continue;
+
     const tokens = sumTokens(files, snapshot);
-    if (tokens > maxContextTokens) {
-      return computeShardPlan(snapshot, maxContextTokens);
+    if (tokens <= maxContextTokens) {
+      shards.push({ id, prefix, files, tokens });
+    } else {
+      const subShards = splitLevel(prefix, files, snapshot, maxContextTokens);
+      shards.push(...subShards);
     }
   }
 
-  const shards: ShardEntry[] = storedMeta.shards
-    .map(({ id, prefix }) => {
-      const files = getFilesForPrefix(snapshot, prefix);
-      const tokens = sumTokens(files, snapshot);
-      return { id, prefix, files, tokens };
-    })
-    .filter((s) => s.files.length > 0);
+  const orphanFiles = [...snapshot.keys()].filter((f) => !coveredFiles.has(f));
+  if (orphanFiles.length > 0) {
+    const orphanTokens = sumTokens(orphanFiles, snapshot);
+    if (orphanTokens <= maxContextTokens) {
+      const prefix = findCommonPrefix(orphanFiles);
+      const id = prefix ? prefix.slice(0, -1) : "__orphan__";
+      shards.push({ id, prefix, files: orphanFiles, tokens: orphanTokens });
+    } else {
+      const orphanShards = splitLevel("", orphanFiles, snapshot, maxContextTokens);
+      shards.push(...orphanShards);
+    }
+  }
 
   if (shards.length === 0) {
     return computeShardPlan(snapshot, maxContextTokens);
@@ -143,6 +157,16 @@ function canSplitFurther(parentPrefix: string, segment: string, files: string[])
     if (relative.includes("/")) return true;
   }
   return false;
+}
+
+function findCommonPrefix(files: string[]): string {
+  if (files.length === 0) return "";
+  const first = files[0];
+  const slashIdx = first.indexOf("/");
+  if (slashIdx === -1) return "";
+  const candidate = first.slice(0, slashIdx + 1);
+  if (files.every((f) => f.startsWith(candidate))) return candidate;
+  return "";
 }
 
 function getFilesForPrefix(snapshot: Snapshot, prefix: string): string[] {
