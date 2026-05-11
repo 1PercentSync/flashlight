@@ -2,12 +2,17 @@ import OpenAI from "openai";
 import type { FlashlightConfig } from "./config.js";
 import { info, warn, error } from "./logger.js";
 
+/** A single code location returned by the model. */
 export interface SearchResult {
+  /** Relative file path. */
   file: string;
+  /** Start line number (1-based). */
   start_line: number;
+  /** End line number (1-based, inclusive). */
   end_line: number;
 }
 
+/** Response from a DeepSeek query, including search results and token usage. */
 export interface QueryResponse {
   results: SearchResult[];
   usage: {
@@ -50,6 +55,7 @@ const SEARCH_TOOL: OpenAI.ChatCompletionTool = {
 let client: OpenAI;
 let config: FlashlightConfig;
 
+/** Initialize the DeepSeek API client. Must be called before any queries. */
 export function initDeepSeek(cfg: FlashlightConfig): void {
   config = cfg;
   client = new OpenAI({
@@ -58,6 +64,11 @@ export function initDeepSeek(cfg: FlashlightConfig): void {
   });
 }
 
+/**
+ * Send a streaming query to DeepSeek and parse the tool call response.
+ * Falls back to JSON output mode if the model doesn't produce a tool call.
+ * @param label - Identifier for logging (shard ID or "__default__").
+ */
 export async function sendQuery(
   messages: { role: "user"; content: string }[],
   label = "__default__",
@@ -91,10 +102,13 @@ export async function sendQuery(
   if (!usage) throw new Error("No usage data in stream response");
 
   const hitTokens: number = usage.prompt_cache_hit_tokens ?? 0;
+  const missTokens: number = usage.prompt_cache_miss_tokens ?? 0;
+  const completionTokens: number = usage.completion_tokens ?? 0;
+  const reasoningTokens: number = usage.completion_tokens_details?.reasoning_tokens ?? 0;
   const hitPct = usage.prompt_tokens > 0
     ? ((hitTokens / usage.prompt_tokens) * 100).toFixed(1)
     : "0";
-  info(`[${label}] cache: total=${usage.prompt_tokens} hit=${hitTokens} (${hitPct}%) miss=${usage.prompt_cache_miss_tokens ?? 0}`);
+  info(`[${label}] usage: prompt=${usage.prompt_tokens} (hit=${hitTokens} ${hitPct}%, miss=${missTokens}), completion=${completionTokens} (reasoning=${reasoningTokens})`);
 
   info(`stream: ${chunkCount} chunks, toolArgs=${toolArgs.length} chars, content=${content.length} chars`);
   if (content && !toolArgs) {
@@ -145,7 +159,8 @@ async function retryWithJsonMode(
       messages: retryMessages,
       response_format: { type: "json_object" },
       // @ts-expect-error DeepSeek-specific
-      thinking: { type: "disabled" },
+      reasoning_effort: config.reasoning_effort,
+      thinking: { type: "enabled" },
     });
 
     const text = resp.choices[0]?.message?.content ?? "";
@@ -159,6 +174,7 @@ async function retryWithJsonMode(
   }
 }
 
+/** Send queries to multiple shards in parallel. Returns only successful results. Throws if all fail. */
 export async function sendParallelQueries(
   querySets: { shardId: string; messages: { role: "user"; content: string }[] }[],
 ): Promise<{ shardId: string; response: QueryResponse }[]> {

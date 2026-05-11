@@ -3,18 +3,27 @@ import type { Snapshot } from "./scanner.js";
 import type { ShardMeta } from "./base.js";
 import { warn } from "./logger.js";
 
+/** A single shard: a group of files that fits within the token budget. */
 export interface ShardEntry {
+  /** Unique shard identifier (directory path or "__all__" / "__root__"). */
   id: string;
+  /** Directory prefix that all files in this shard share. */
   prefix: string;
+  /** List of relative file paths belonging to this shard. */
   files: string[];
+  /** Total token count of all files in this shard. */
   tokens: number;
 }
 
+/** A complete shard plan describing how to partition the codebase. */
 export interface ShardPlan {
+  /** Ordered list of shards covering all files. */
   shards: ShardEntry[];
+  /** Hash of shard boundaries — changes when shards are re-split. */
   planHash: string;
 }
 
+/** Compute a fresh shard plan by recursively splitting directories until each fits the token budget. */
 export function computeShardPlan(snapshot: Snapshot, maxContextTokens: number): ShardPlan {
   const allFiles = [...snapshot.keys()];
   const totalTokens = sumTokens(allFiles, snapshot);
@@ -28,6 +37,10 @@ export function computeShardPlan(snapshot: Snapshot, maxContextTokens: number): 
   return { shards, planHash: computePlanHash(shards) };
 }
 
+/**
+ * Resolve the shard plan: reuse the stored plan if all shards still fit,
+ * otherwise recompute from scratch.
+ */
 export function resolveShardPlan(
   snapshot: Snapshot,
   maxContextTokens: number,
@@ -54,6 +67,7 @@ export function resolveShardPlan(
   return { shards, planHash: storedMeta.planHash };
 }
 
+/** Compute a deterministic hash of shard boundaries for change detection. */
 export function computePlanHash(shards: ShardEntry[]): string {
   const boundaries = shards
     .map((s) => `${s.id}:${s.prefix}`)

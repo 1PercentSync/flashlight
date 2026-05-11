@@ -4,6 +4,7 @@ import fs from "node:fs";
 
 let tokenizer: InstanceType<typeof Tokenizer> | null = null;
 
+/** Load the DeepSeek tokenizer from bundled JSON files. Must be called before {@link countTokens}. */
 export function initTokenizer(): void {
   const dir = path.join(import.meta.dirname!, "..", "deepseek_v3_tokenizer");
   const tokenizerJson = JSON.parse(fs.readFileSync(path.join(dir, "tokenizer.json"), "utf-8"));
@@ -11,6 +12,7 @@ export function initTokenizer(): void {
   tokenizer = new Tokenizer(tokenizerJson, configJson);
 }
 
+/** Count the number of DeepSeek tokens in a string. */
 export function countTokens(text: string): number {
   if (!tokenizer) {
     throw new Error("Tokenizer not initialized. Call initTokenizer() first.");

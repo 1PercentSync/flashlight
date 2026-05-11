@@ -6,15 +6,22 @@ import ignore, { type Ignore } from "ignore";
 import type { FlashlightConfig } from "./config.js";
 import { countTokens } from "./tokenizer.js";
 
+/** A single file captured in the workspace snapshot. */
 export interface FileEntry {
+  /** Path relative to workspace root (forward slashes). */
   relativePath: string;
+  /** Full UTF-8 file content. */
   content: string;
+  /** SHA-256 hash of content, used for change detection. */
   hash: string;
+  /** DeepSeek token count of content. */
   tokens: number;
 }
 
+/** Immutable map of relative file paths to their snapshot entries. */
 export type Snapshot = Map<string, FileEntry>;
 
+/** Scan the workspace and create an in-memory snapshot of all whitelisted files. */
 export function createSnapshot(workspaceRoot: string, config: FlashlightConfig): Snapshot {
   const files = scanFiles(workspaceRoot, config.ext_whitelist);
   const snapshot: Snapshot = new Map();
@@ -28,10 +35,19 @@ export function createSnapshot(workspaceRoot: string, config: FlashlightConfig):
   return snapshot;
 }
 
-let gitTimeCache: { root: string; times: Map<string, number> } | null = null;
+let queryGitTimes: Map<string, number> | null = null;
 
+/** Reset the per-query git time cache. Call once at the start of each query. */
+export function resetGitTimeCache(): void {
+  queryGitTimes = null;
+}
+
+/** Sort files by git commit time (oldest first). Falls back to mtime for untracked files. */
 export function sortByGitTime(workspaceRoot: string, files: string[]): string[] {
-  const times = getGitTimes(workspaceRoot);
+  if (!queryGitTimes) {
+    queryGitTimes = getGitTimes(workspaceRoot);
+  }
+  const times = queryGitTimes;
 
   for (const file of files) {
     if (!times.has(file)) {
@@ -48,10 +64,6 @@ export function sortByGitTime(workspaceRoot: string, files: string[]): string[] 
 }
 
 function getGitTimes(workspaceRoot: string): Map<string, number> {
-  if (gitTimeCache && gitTimeCache.root === workspaceRoot) {
-    return gitTimeCache.times;
-  }
-
   const times = new Map<string, number>();
   const hasGit = fs.existsSync(path.join(workspaceRoot, ".git"));
 
@@ -75,7 +87,6 @@ function getGitTimes(workspaceRoot: string): Map<string, number> {
     } catch {}
   }
 
-  gitTimeCache = { root: workspaceRoot, times };
   return times;
 }
 

@@ -1,11 +1,13 @@
 import type { Snapshot } from "./scanner.js";
 import type { SearchResult } from "./deepseek.js";
 
-const TOKEN_LIMIT = 25000;
-const CHARS_PER_TOKEN = 2;
-const CHAR_LIMIT = TOKEN_LIMIT * CHARS_PER_TOKEN;
-
-export function extractResults(snapshot: Snapshot, results: SearchResult[]): string {
+/**
+ * Format search results using a three-tier strategy:
+ * 1. Full files (if total size fits within limit)
+ * 2. Code snippets (matched line ranges only)
+ * 3. Index (file:line-range list for the caller to read manually)
+ */
+export function extractResults(snapshot: Snapshot, results: SearchResult[], maxOutputChars: number): string {
   if (results.length === 0) return "No matching code found.";
 
   const valid = results.filter((r) => snapshot.has(r.file));
@@ -13,10 +15,10 @@ export function extractResults(snapshot: Snapshot, results: SearchResult[]): str
 
   const merged = mergeOverlappingRanges(valid);
 
-  const fullFiles = tryFullFiles(snapshot, merged);
+  const fullFiles = tryFullFiles(snapshot, merged, maxOutputChars);
   if (fullFiles) return fullFiles;
 
-  const snippets = trySnippets(snapshot, merged);
+  const snippets = trySnippets(snapshot, merged, maxOutputChars);
   if (snippets) return snippets;
 
   return formatIndex(merged);
@@ -51,7 +53,7 @@ function mergeOverlappingRanges(results: SearchResult[]): SearchResult[] {
   return merged;
 }
 
-function tryFullFiles(snapshot: Snapshot, results: SearchResult[]): string | null {
+function tryFullFiles(snapshot: Snapshot, results: SearchResult[], charLimit: number): string | null {
   const fileOrder: string[] = [];
   const fileLines = new Map<string, number[]>();
 
@@ -67,7 +69,7 @@ function tryFullFiles(snapshot: Snapshot, results: SearchResult[]): string | nul
     totalChars += entry.relativePath.length + entry.content.length + 50;
   }
 
-  if (totalChars > CHAR_LIMIT) return null;
+  if (totalChars > charLimit) return null;
 
   const parts: string[] = [];
   for (const file of fileOrder) {
@@ -82,7 +84,7 @@ function tryFullFiles(snapshot: Snapshot, results: SearchResult[]): string | nul
   return parts.join("\n\n");
 }
 
-function trySnippets(snapshot: Snapshot, results: SearchResult[]): string | null {
+function trySnippets(snapshot: Snapshot, results: SearchResult[], charLimit: number): string | null {
   let totalChars = 0;
   const parts: string[] = [];
 
@@ -98,7 +100,7 @@ function trySnippets(snapshot: Snapshot, results: SearchResult[]): string | null
     parts.push(snippet);
   }
 
-  if (totalChars > CHAR_LIMIT) return null;
+  if (totalChars > charLimit) return null;
 
   return parts.join("\n\n");
 }

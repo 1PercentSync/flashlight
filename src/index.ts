@@ -2,10 +2,11 @@
 import { McpServer, StdioServerTransport } from "@modelcontextprotocol/server";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
-import { loadConfig, type FlashlightConfig } from "./config.js";
+import { loadConfig } from "./config.js";
+import type { FlashlightConfig } from "./config.js";
 import { initTokenizer, countTokens } from "./tokenizer.js";
 import { withLock } from "./lock.js";
-import { createSnapshot, type Snapshot } from "./scanner.js";
+import { createSnapshot, resetGitTimeCache, type Snapshot } from "./scanner.js";
 import {
   readBase, writeBase, detectChanges,
   readShardMeta, writeShardMeta, readShardBase, writeShardBase, cleanupShardFiles,
@@ -59,6 +60,7 @@ async function handleQuery(
   await ensureInitialized();
   info(`--- query start: "${query.slice(0, 80)}"${scope ? ` scope=${scope}` : ""}${fileTypes ? ` types=${fileTypes.join(",")}` : ""} ---`);
 
+  resetGitTimeCache();
   const snapshot = createSnapshot(workspaceRoot, config);
   info(`snapshot: ${snapshot.size} files`);
 
@@ -165,7 +167,7 @@ async function handleSingleQuery(
     info(`base saved: ${Object.keys(fileHashes).length} files`);
   }
 
-  const output = extractResults(snapshot, response.results);
+  const output = extractResults(snapshot, response.results, config.max_output_chars);
   info(`--- query end: returned ${output.length} chars ---`);
   return { content: [{ type: "text", text: output }] };
 }
@@ -290,7 +292,7 @@ async function handleShardedQuery(
     cleanupShardFiles(workspaceRoot, plan.shards.map((s) => s.id));
   });
 
-  const output = extractResults(snapshot, mergedResults);
+  const output = extractResults(snapshot, mergedResults, config.max_output_chars);
   info(`--- query end: returned ${output.length} chars ---`);
   return { content: [{ type: "text", text: output }] };
 }
@@ -341,17 +343,7 @@ async function ensureInitialized() {
     workspaceRoot = process.cwd();
   }
 
-  config = loadConfig({
-    deepseek_api_key: process.env.DEEPSEEK_API_KEY,
-    model: process.env.FLASHLIGHT_MODEL,
-    reasoning_effort: process.env.FLASHLIGHT_REASONING_EFFORT,
-    change_threshold: process.env.FLASHLIGHT_CHANGE_THRESHOLD
-      ? parseFloat(process.env.FLASHLIGHT_CHANGE_THRESHOLD)
-      : undefined,
-    max_context_tokens: process.env.FLASHLIGHT_MAX_CONTEXT_TOKENS
-      ? parseInt(process.env.FLASHLIGHT_MAX_CONTEXT_TOKENS, 10)
-      : undefined,
-  });
+  config = loadConfig();
 
   initLogger(workspaceRoot);
   initTokenizer();

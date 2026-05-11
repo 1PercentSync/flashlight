@@ -1,10 +1,19 @@
+/** Flashlight runtime configuration. */
 export interface FlashlightConfig {
+  /** DeepSeek API key for authentication. */
   deepseek_api_key: string;
-  ext_whitelist: string[];
+  /** DeepSeek model to use. */
   model: "deepseek-v4-flash" | "deepseek-v4-pro";
+  /** Thinking effort level for the model. */
   reasoning_effort: "high" | "max";
+  /** Allowed file extensions for scanning (e.g. [".ts", ".py"]). */
+  ext_whitelist: string[];
+  /** Ratio of changed tokens to base tokens that triggers a full rebuild. */
   change_threshold: number;
+  /** Max tokens per shard before auto-sharding kicks in. */
   max_context_tokens: number;
+  /** Max output characters for search results before falling back to index mode. */
+  max_output_chars: number;
 }
 
 const DEFAULT_EXT_WHITELIST = [
@@ -78,35 +87,44 @@ const DEFAULT_EXT_WHITELIST = [
   ".yaml", ".yml", ".toml",
 ];
 
-export function loadConfig(args: Record<string, unknown>): FlashlightConfig {
-  const apiKey = args.deepseek_api_key;
-  if (typeof apiKey !== "string" || !apiKey) {
-    throw new Error("deepseek_api_key is required");
-  }
-
-  let extWhitelist = DEFAULT_EXT_WHITELIST;
-  if (Array.isArray(args.ext_whitelist)) {
-    extWhitelist = args.ext_whitelist.filter((x): x is string => typeof x === "string");
+/** Load and validate configuration from environment variables. */
+export function loadConfig(): FlashlightConfig {
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  if (!apiKey) {
+    throw new Error("DEEPSEEK_API_KEY environment variable is required");
   }
 
   let model: FlashlightConfig["model"] = "deepseek-v4-flash";
-  if (args.model === "deepseek-v4-pro") {
+  if (process.env.FLASHLIGHT_MODEL === "deepseek-v4-pro") {
     model = "deepseek-v4-pro";
   }
 
   let reasoningEffort: FlashlightConfig["reasoning_effort"] = "high";
-  if (args.reasoning_effort === "max") {
+  if (process.env.FLASHLIGHT_REASONING_EFFORT === "max") {
     reasoningEffort = "max";
   }
 
+  let extWhitelist = DEFAULT_EXT_WHITELIST;
+  if (process.env.FLASHLIGHT_EXT_WHITELIST) {
+    extWhitelist = process.env.FLASHLIGHT_EXT_WHITELIST.split(",").map((s) => s.trim()).filter(Boolean);
+  }
+
   let changeThreshold = 0.1;
-  if (typeof args.change_threshold === "number" && args.change_threshold > 0 && args.change_threshold < 1) {
-    changeThreshold = args.change_threshold;
+  const ctEnv = parseFloat(process.env.FLASHLIGHT_CHANGE_THRESHOLD ?? "");
+  if (ctEnv > 0 && ctEnv < 1) {
+    changeThreshold = ctEnv;
   }
 
   let maxContextTokens = 900_000;
-  if (typeof args.max_context_tokens === "number" && args.max_context_tokens >= 100_000 && args.max_context_tokens <= 1_000_000) {
-    maxContextTokens = args.max_context_tokens;
+  const mctEnv = parseInt(process.env.FLASHLIGHT_MAX_CONTEXT_TOKENS ?? "", 10);
+  if (mctEnv >= 100_000 && mctEnv <= 1_000_000) {
+    maxContextTokens = mctEnv;
+  }
+
+  let maxOutputChars = 50_000;
+  const mocEnv = parseInt(process.env.FLASHLIGHT_MAX_OUTPUT_CHARS ?? "", 10);
+  if (mocEnv > 0) {
+    maxOutputChars = mocEnv;
   }
 
   return {
@@ -116,5 +134,6 @@ export function loadConfig(args: Record<string, unknown>): FlashlightConfig {
     reasoning_effort: reasoningEffort,
     change_threshold: changeThreshold,
     max_context_tokens: maxContextTokens,
+    max_output_chars: maxOutputChars,
   };
 }

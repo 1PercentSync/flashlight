@@ -2,6 +2,10 @@ import path from "node:path";
 import fs from "node:fs";
 import { info } from "./logger.js";
 
+/**
+ * Execute a function while holding an exclusive lock on the `.flashlight/` directory.
+ * Uses mkdir-based locking with stale lock detection (10s timeout).
+ */
 export async function withLock<T>(workspaceRoot: string, fn: () => Promise<T>): Promise<T> {
   const dir = path.join(workspaceRoot, ".flashlight");
   if (!fs.existsSync(dir)) {
