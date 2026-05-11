@@ -27,7 +27,7 @@ import { resolveShardPlan, type ShardPlan, type ShardEntry } from "./shard.js";
 import { initLogger, info, warn, error } from "./logger.js";
 import type { SearchResult } from "./deepseek.js";
 
-const server = new McpServer({ name: "flashlight", version: "0.6.6" });
+const server = new McpServer({ name: "flashlight", version: "0.6.7" });
 let config: FlashlightConfig;
 let workspaceRoot: string;
 

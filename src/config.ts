@@ -93,8 +93,8 @@ export const DEFAULT_EXT_WHITELIST = [
   ".html", ".htm", ".css", ".scss", ".less",
   // Config (hand-written, typically small)
   ".yaml", ".yml", ".toml",
-  // IPC / IPS
-  ".ipsc",
+  // ISPC (Intel SPMD)
+  ".ispc",
 ];
 
 /** Project-level extension whitelist configuration from `.flashlight/config.json`. */
