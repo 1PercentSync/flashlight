@@ -49,13 +49,9 @@ The server exposes a single tool `search` with parameters:
 | `scope` | No | Relative directory path to narrow search |
 | `file_types` | No | File extensions to filter (e.g. `[".ts", ".py"]`) |
 
-### Output Modes
+### Output
 
-Results are returned in one of three formats (tried in order):
-
-1. **Full files** — all matched files with line numbers (if total ≤ 50K chars)
-2. **Snippets** — only the matched line ranges (if total ≤ 50K chars)
-3. **Index** — file paths and line ranges only (caller should use Read to view code)
+Results are returned as code snippets — the matched line ranges with line numbers.
 
 ## Configuration
 
