@@ -16,9 +16,6 @@ export function extractResults(snapshot: Snapshot, results: SearchResult[], maxO
 
   const merged = mergeOverlappingRanges(valid);
 
-  const fullFiles = tryFullFiles(snapshot, merged, maxOutputChars);
-  if (fullFiles) return fullFiles;
-
   const snippets = trySnippets(snapshot, merged, maxOutputChars);
   if (snippets) return snippets;
 
@@ -54,36 +51,6 @@ function mergeOverlappingRanges(results: SearchResult[]): SearchResult[] {
   return merged;
 }
 
-function tryFullFiles(snapshot: Snapshot, results: SearchResult[], charLimit: number): string | null {
-  const fileOrder: string[] = [];
-  const fileLines = new Map<string, number[]>();
-
-  for (const r of results) {
-    if (!fileOrder.includes(r.file)) fileOrder.push(r.file);
-    if (!fileLines.has(r.file)) fileLines.set(r.file, []);
-    fileLines.get(r.file)!.push(r.start_line, r.end_line);
-  }
-
-  let totalChars = 0;
-  for (const file of fileOrder) {
-    const entry = snapshot.get(file)!;
-    totalChars += entry.relativePath.length + entry.content.length + 50;
-  }
-
-  if (totalChars > charLimit) return null;
-
-  const parts: string[] = [];
-  for (const file of fileOrder) {
-    const entry = snapshot.get(file)!;
-    const lines = entry.content.split("\n");
-    const numbered = lines.map((line, i) => `${i + 1}\t${line}`).join("\n");
-    const relevant = fileLines.get(file)!;
-    const ranges = formatRanges(relevant);
-    parts.push(`--- ${entry.relativePath} (relevant lines: ${ranges}) ---\n${numbered}`);
-  }
-
-  return parts.join("\n\n");
-}
 
 function trySnippets(snapshot: Snapshot, results: SearchResult[], charLimit: number): string | null {
   let totalChars = 0;
@@ -142,10 +109,4 @@ function normalizeResults(snapshot: Snapshot, results: SearchResult[]): SearchRe
   return normalized;
 }
 
-function formatRanges(lineNumbers: number[]): string {
-  const pairs: string[] = [];
-  for (let i = 0; i < lineNumbers.length; i += 2) {
-    pairs.push(`${lineNumbers[i]}-${lineNumbers[i + 1]}`);
-  }
-  return pairs.join(", ");
-}
+
