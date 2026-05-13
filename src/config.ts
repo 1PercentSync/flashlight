@@ -5,6 +5,8 @@ import path from "node:path";
 export interface FlashlightConfig {
   /** DeepSeek API key for authentication. */
   deepseek_api_key: string;
+  /** DeepSeek API base URL. */
+  base_url: string;
   /** DeepSeek model to use. */
   model: "deepseek-v4-flash" | "deepseek-v4-pro";
   /** Thinking effort level for the model. */
@@ -179,8 +181,11 @@ export function loadConfig(workspaceRoot?: string): FlashlightConfig {
     maxContextTokens = mctEnv;
   }
 
+  const baseUrl = process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com";
+
   return {
     deepseek_api_key: apiKey,
+    base_url: baseUrl,
     ext_whitelist: extWhitelist,
     model,
     reasoning_effort: reasoningEffort,

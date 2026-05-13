@@ -60,6 +60,7 @@ Results are returned as code snippets — the matched line ranges with line numb
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DEEPSEEK_API_KEY` | (required) | DeepSeek API key |
+| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | DeepSeek API base URL |
 | `FLASHLIGHT_MODEL` | `deepseek-v4-flash` | Model (`deepseek-v4-flash` or `deepseek-v4-pro`) |
 | `FLASHLIGHT_REASONING_EFFORT` | `max` | Thinking effort (`high` or `max`) |
 | `FLASHLIGHT_CHANGE_THRESHOLD` | `0.1` | Ratio of changed tokens to trigger base rebuild |

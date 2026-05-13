@@ -68,7 +68,7 @@ export function initDeepSeek(cfg: FlashlightConfig): void {
   config = cfg;
   client = new OpenAI({
     apiKey: cfg.deepseek_api_key,
-    baseURL: "https://api.deepseek.com",
+    baseURL: cfg.base_url,
   });
 }
 
