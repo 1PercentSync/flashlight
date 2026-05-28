@@ -39,6 +39,8 @@ Add to your MCP client config:
 }
 ```
 
+Flashlight detects the workspace from MCP roots when the client provides them. If roots are unavailable, it falls back to the server process working directory.
+
 ## Usage
 
 The server exposes a single tool `search` with parameters:

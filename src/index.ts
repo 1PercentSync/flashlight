@@ -27,9 +27,10 @@ import { resolveShardPlan, type ShardPlan, type ShardEntry } from "./shard.js";
 import { initLogger, info, warn, error } from "./logger.js";
 import type { SearchResult } from "./deepseek.js";
 
-const server = new McpServer({ name: "flashlight", version: "0.6.8" });
+const server = new McpServer({ name: "flashlight", version: "0.6.9" });
 let config: FlashlightConfig;
 let workspaceRoot: string;
+let workspaceRootSource: "mcp roots" | "process cwd";
 
 const effectiveExtWhitelist = resolveExtWhitelist(process.cwd());
 
@@ -432,11 +433,13 @@ async function ensureInitialized() {
     if (roots.length > 0) {
       const uri = roots[0].uri;
       workspaceRoot = uri.startsWith("file://") ? decodeURIComponent(uri.slice(7)) : uri;
+      workspaceRootSource = "mcp roots";
     }
   } catch {}
 
   if (!workspaceRoot) {
-    throw new Error("No workspace root available. MCP client must provide roots.");
+    workspaceRoot = process.cwd();
+    workspaceRootSource = "process cwd";
   }
 
   config = loadConfig(workspaceRoot);
@@ -446,6 +449,7 @@ async function ensureInitialized() {
   initDeepSeek(config);
 
   info(`workspace: ${workspaceRoot}`);
+  info(`workspace source: ${workspaceRootSource}`);
   info(`model: ${config.model}, effort: ${config.reasoning_effort}`);
 }
 
