@@ -48,7 +48,7 @@ The server exposes a single tool `search` with parameters:
 | Parameter | Required | Description |
 |-----------|----------|-------------|
 | `query` | Yes | Natural language description of the code to find |
-| `scope` | No | Relative directory path to narrow search |
+| `scope` | No | Optional workspace-relative directory prefix (e.g. `app` or `framework/src`). Omit to search the entire workspace. Do not pass `.`, `./`, absolute paths, or paths outside the current workspace. |
 | `file_types` | No | File extensions to filter (e.g. `[".ts", ".py"]`) |
 
 ### Output

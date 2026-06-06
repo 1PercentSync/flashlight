@@ -21,7 +21,7 @@ import * as z from "zod/v4";
 ```typescript
 const inputSchema = z.object({
   query: z.string().describe("Natural language query"),
-  scope: z.string().optional().describe("Relative directory path"),
+  scope: z.string().optional().describe("Optional workspace-relative directory prefix. Omit for all files; do not pass '.', './', absolute paths, or external paths."),
   file_types: z.array(z.string()).optional().describe("File type filter"),
 });
 ```

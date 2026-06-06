@@ -56,7 +56,7 @@ server.registerTool(
     description: buildSearchDescription(effectiveExtWhitelist),
     inputSchema: z.object({
       query: z.string().describe("Natural language description of the code to find"),
-      scope: z.string().optional().describe("Relative directory path to narrow search scope"),
+      scope: z.string().optional().describe("Optional workspace-relative directory prefix (for example, \"app\" or \"framework/src\"). Omit to search the entire workspace. Do not pass \".\", \"./\", absolute paths, or paths outside the current workspace."),
       file_types: z.array(z.string()).optional().describe("File extensions to filter (e.g. [\".ts\", \".py\"])"),
     }),
     _meta: { "anthropic/maxResultSizeChars": 500_000 },

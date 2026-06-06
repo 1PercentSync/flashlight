@@ -35,7 +35,7 @@ server.registerTool(
     description: "Search code in the workspace",
     inputSchema: z.object({
       query: z.string().describe("Natural language query"),
-      scope: z.string().optional().describe("Directory scope"),
+      scope: z.string().optional().describe("Optional workspace-relative directory prefix. Omit for the entire workspace; do not pass '.', './', absolute paths, or paths outside the current workspace."),
       file_types: z.array(z.string()).optional().describe("File type filter"),
     }),
   },
